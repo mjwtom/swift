@@ -73,6 +73,11 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
+#mjw:import dedupe modules
+import copy
+from swift.dedupe.chunk import chunkIter
+from hashlib import md5
+
 
 def copy_headers_into(from_r, to_r):
     """
