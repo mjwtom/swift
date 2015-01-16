@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,7 +36,7 @@ from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
 from swift.common.utils import (
-    clean_content_type, config_true_value, ContextPool, csv_append, GreenPool,
+    clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, quorum_size, get_expirer_container)
 from swift.common.bufferedhttp import http_connect
@@ -61,11 +61,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
-#mjw:import dedupe modules
-import copy
-from swift.dedupe.chunk import chunkIter
-from hashlib import md5
-
 
 def copy_headers_into(from_r, to_r):
     """
@@ -81,7 +76,7 @@ def copy_headers_into(from_r, to_r):
 
 def check_content_type(req):
     if not req.environ.get('swift.content_type_overridden') and \
-                    ';' in req.headers.get('content-type', ''):
+            ';' in req.headers.get('content-type', ''):
         for param in req.headers['content-type'].split(';')[1:]:
             if param.lstrip().startswith('swift_'):
                 return HTTPBadRequest("Invalid Content-Type, "
@@ -226,7 +221,7 @@ class ObjectController(Controller):
                 self.account_name, self.container_name, self.object_name)
             req.headers['Content-Length'] = 0
             req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
-                                                           self.object_name))
+                                               self.object_name))
             req.headers['X-Fresh-Metadata'] = 'true'
             req.environ['swift_versioned_copy'] = True
             if req.environ.get('QUERY_STRING'):
@@ -257,7 +252,7 @@ class ObjectController(Controller):
                 return HTTPNotFound(request=req)
 
             req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
+                delete_at_nodes = self._config_obj_expiration(req)
 
             # pass the policy index to storage nodes via req header
             policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
@@ -350,7 +345,7 @@ class ObjectController(Controller):
                     conn.node = node
                     return conn
                 elif headers['If-None-Match'] is not None and \
-                                resp.status == HTTP_PRECONDITION_FAILED:
+                        resp.status == HTTP_PRECONDITION_FAILED:
                     conn.resp = resp
                     conn.node = node
                     return conn
@@ -360,7 +355,7 @@ class ObjectController(Controller):
                     self.app.error_occurred(
                         node, _('ERROR %(status)d Expect: 100-continue '
                                 'From Object Server') % {
-                            'status': resp.status})
+                                    'status': resp.status})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, _('Object'),
@@ -463,11 +458,6 @@ class ObjectController(Controller):
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
 
-        '''
-        TODO: get the dedupe ring for chunk strorage, now we use the object ring 
-        #dedupe_ring = self.app.get_dedupe_ring(ploicy_index)
-        '''
-
         # pass the policy index to storage nodes via req header
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         container_partition = container_info['partition']
@@ -490,31 +480,31 @@ class ObjectController(Controller):
         if detect_content_type or not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             req.headers['Content-Type'] = guessed_type or \
-                                          'application/octet-stream'
+                'application/octet-stream'
             if detect_content_type:
                 req.headers.pop('x-detect-content-type')
             else:
                 content_type_manually_set = False
 
         error_response = check_object_creation(req, self.object_name) or \
-                         check_content_type(req)
+            check_content_type(req)
         if error_response:
             return error_response
 
-        obj_partition, obj_nodes = obj_ring.get_nodes(
+        partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
         # do a HEAD request for container sync and checking object versions
         if 'x-timestamp' in req.headers or \
                 (object_versions and not
-                req.environ.get('swift_versioned_copy')):
+                 req.environ.get('swift_versioned_copy')):
             # make sure proxy-server uses the right policy index
             _headers = {'X-Backend-Storage-Policy-Index': policy_index,
                         'X-Newest': 'True'}
             hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(
-                hreq, _('Object'), obj_ring, obj_partition,
+                hreq, _('Object'), obj_ring, partition,
                 hreq.swift_entity_path)
 
         # Used by container sync feature
@@ -522,7 +512,7 @@ class ObjectController(Controller):
             try:
                 req_timestamp = Timestamp(req.headers['X-Timestamp'])
                 if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
-                                hresp.environ['swift_x_timestamp'] >= req_timestamp:
+                        hresp.environ['swift_x_timestamp'] >= req_timestamp:
                     return HTTPAccepted(request=req)
             except ValueError:
                 return HTTPBadRequest(
@@ -547,15 +537,15 @@ class ObjectController(Controller):
                 ts_source = hresp.environ.get('swift_x_timestamp')
                 if ts_source is None:
                     ts_source = time.mktime(time.strptime(
-                        hresp.headers['last-modified'],
-                        '%a, %d %b %Y %H:%M:%S GMT'))
+                                            hresp.headers['last-modified'],
+                                            '%a, %d %b %Y %H:%M:%S GMT'))
                 new_ts = Timestamp(ts_source).internal
                 vers_obj_name = lprefix + new_ts
                 copy_headers = {
                     'Destination': '%s/%s' % (lcontainer, vers_obj_name)}
                 copy_environ = {'REQUEST_METHOD': 'COPY',
                                 'swift_versioned_copy': True
-                }
+                                }
                 copy_req = Request.blank(req.path_info, headers=copy_headers,
                                          environ=copy_environ)
                 copy_resp = self.COPY(copy_req)
@@ -582,7 +572,7 @@ class ObjectController(Controller):
                 src_account_name = acct
             src_container_name, src_obj_name = check_copy_from_header(req)
             source_header = '/%s/%s/%s/%s' % (ver, src_account_name,
-                                              src_container_name, src_obj_name)
+                            src_container_name, src_obj_name)
             source_req = req.copy_get()
 
             # make sure the source request uses it's container_info
@@ -645,154 +635,35 @@ class ObjectController(Controller):
 
             # copy over x-static-large-object for POSTs and manifest copies
             if 'X-Static-Large-Object' in source_resp.headers and \
-                            req.params.get('multipart-manifest') == 'get':
+                    req.params.get('multipart-manifest') == 'get':
                 sink_req.headers['X-Static-Large-Object'] = \
                     source_resp.headers['X-Static-Large-Object']
 
             req = sink_req
 
         req, delete_at_container, delete_at_part, \
-        delete_at_nodes = self._config_obj_expiration(req)
-
-        '''
-        back up the length
-        '''
-        ori_req_len = req.headers['Content-Length']
-        '''
-        Store the fingerprints of each chunk
-        Segment the data stream to chunks
-        '''
-        fingerprints = ''
-        chunk_src = iter(chunkIter(data_source))
-        bytes_transferred = 0
-
-        while True:
-            try:
-                chunk = next(chunk_src)
-                m = md5(chunk)
-                fingerprint = m.digest()
-                fingerprints += fingerprint
-                str_fp = m.hexdigest()
-                chunk_partition, chunk_nodes = obj_ring.get_nodes(
-                    self.account_name, self.container_name, str_fp)
-                chunk_req = copy.copy(req)  #chunk_req = copy.deepcopy(req)
-                chunk_req.headers['Content-Length'] = str(len(chunk))
-
-                node_iter = GreenthreadSafeIterator(
-                    self.iter_nodes_local_first(obj_ring, chunk_partition))
-                pile = GreenPile(len(chunk_nodes))
-                te = chunk_req.headers.get('transfer-encoding', '')
-                chunked = ('chunked' in te)
-
-                outgoing_headers = self._backend_requests(
-                    chunk_req, len(chunk_nodes), container_partition, containers,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-
-                for nheaders in outgoing_headers:
-                    # RFC2616:8.2.3 disallows 100-continue without a body
-                    if (chunk_req.content_length > 0) or chunked:
-                        nheaders['Expect'] = '100-continue'
-                    pile.spawn(self._connect_put_node, node_iter, chunk_partition,
-                               chunk_req.swift_entity_path, nheaders,
-                               self.app.logger.thread_locals)
-
-                conns = [conn for conn in pile if conn]
-                min_conns = quorum_size(len(chunk_nodes))
-
-                if chunk_req.if_none_match is not None and '*' in chunk_req.if_none_match:
-                    statuses = [conn.resp.status for conn in conns if conn.resp]
-                    if HTTP_PRECONDITION_FAILED in statuses:
-                        # If we find any copy of the file, it shouldn't be uploaded
-                        self.app.logger.debug(
-                            _('Object PUT returning 412, %(statuses)r'),
-                            {'statuses': statuses})
-                        return HTTPPreconditionFailed(request=chunk_req)
-                if len(conns) < min_conns:
-                    self.app.logger.error(
-                        _('Object PUT returning 503, %(conns)s/%(nodes)s '
-                          'required connections'),
-                        {'conns': len(conns), 'nodes': min_conns})
-                    return HTTPServiceUnavailable(request=chunk_req)
-
-                '''
-                TODO:This part of code does not work. I do not know the reason
-                # I give up this and replace with one thread process
-                '''
-                with ContextPool(len(chunk_nodes)) as pool:
-                    for conn in conns:
-                        conn.failed = False
-                        conn.queue = Queue(self.app.put_queue_depth)
-                        pool.spawn(self._send_file, conn, chunk_req.path)
-
-                    bytes_transferred += len(chunk)
-                    if bytes_transferred > constraints.MAX_FILE_SIZE:
-                        return HTTPRequestEntityTooLarge(request=chunk_req)
-                    for conn in list(conns):
-                        if not conn.failed:
-                            '''
-                            TODO: Not use queue, use on thread instead
-                            '''
-                            conn.queue.put(
-                                '%x\r\n%s\r\n' % (len(chunk), chunk)
-                                if chunked else chunk)
-                            if chunked:
-                                conn.queue.put('0\r\n\r\n')
-                        else:
-                            conns.remove(conn)
-
-                    if len(conns) < min_conns:
-                        self.app.logger.error(_(
-                            'Object PUT exceptions during'
-                            ' send, %(conns)s/%(nodes)s required connections'),
-                                              {'conns': len(conns), 'nodes': min_conns})
-                        return HTTPServiceUnavailable(request=chunk_req)
-                    '''
-                    Use in multi-thread process
-                    '''
-                    for conn in conns:
-                        if conn.queue.unfinished_tasks:
-                            conn.queue.join()
-
-            except StopIteration:
-                break
-            except ChunkReadTimeout as err:
-                self.app.logger.warn(
-                    _('ERROR Client read timeout (%ss)'), err.seconds)
-                self.app.logger.increment('client_timeouts')
-                return HTTPRequestTimeout(request=req)
-            except (Exception, Timeout):
-                self.app.logger.exception(
-                    _('ERROR Exception causing client disconnect'))
-                return HTTPClientDisconnect(request=req)
-
-        '''
-        The following code is used to send metadata (fingerprints) for object
-        '''
-        '''
-        restore the length
-        '''
-        req.headers['Content-Length'] = str(len(fingerprints))
+            delete_at_nodes = self._config_obj_expiration(req)
 
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes_local_first(obj_ring, obj_partition))
-        pile = GreenPile(len(obj_nodes))
+            self.iter_nodes_local_first(obj_ring, partition))
+        pile = GreenPile(len(nodes))
         te = req.headers.get('transfer-encoding', '')
         chunked = ('chunked' in te)
 
         outgoing_headers = self._backend_requests(
-            req, len(obj_nodes), container_partition, containers,
+            req, len(nodes), container_partition, containers,
             delete_at_container, delete_at_part, delete_at_nodes)
 
         for nheaders in outgoing_headers:
             # RFC2616:8.2.3 disallows 100-continue without a body
             if (req.content_length > 0) or chunked:
                 nheaders['Expect'] = '100-continue'
-            pile.spawn(self._connect_put_node, node_iter, obj_partition,
+            pile.spawn(self._connect_put_node, node_iter, partition,
                        req.swift_entity_path, nheaders,
                        self.app.logger.thread_locals)
 
         conns = [conn for conn in pile if conn]
-        min_conns = quorum_size(len(obj_nodes))
+        min_conns = quorum_size(len(nodes))
 
         if req.if_none_match is not None and '*' in req.if_none_match:
             statuses = [conn.resp.status for conn in conns if conn.resp]
@@ -809,45 +680,51 @@ class ObjectController(Controller):
                   'required connections'),
                 {'conns': len(conns), 'nodes': min_conns})
             return HTTPServiceUnavailable(request=req)
-
-        with ContextPool(len(chunk_nodes)) as pool:
-            for conn in conns:
-                conn.failed = False
-                conn.queue = Queue(self.app.put_queue_depth)
-                pool.spawn(self._send_file, conn, chunk_req.path)
-
-            if bytes_transferred > constraints.MAX_FILE_SIZE:
-                return HTTPRequestEntityTooLarge(request=chunk_req)
-            for conn in list(conns):
-                if not conn.failed:
-                    '''
-                    TODO: Not use queue, use on thread instead
-                    '''
-                    conn.queue.put(
-                        '%x\r\n%s\r\n' % (len(fingerprints), fingerprints)
-                        if chunked else fingerprints)
-                    if chunked:
-                        conn.queue.put('0\r\n\r\n')
-                else:
-                    conns.remove(conn)
-
-            if len(conns) < min_conns:
-                self.app.logger.error(_(
-                    'Object PUT exceptions during'
-                    ' send, %(conns)s/%(nodes)s required connections'),
-                                      {'conns': len(conns), 'nodes': min_conns})
-                return HTTPServiceUnavailable(request=chunk_req)
-            '''
-            Use in multi-thread process
-            '''
-            for conn in conns:
-                if conn.queue.unfinished_tasks:
-                    conn.queue.join()
-
-        '''
-        Restore the original request length
-        '''
-        req.headers['Content-Length'] = ori_req_len
+        bytes_transferred = 0
+        try:
+            with ContextPool(len(nodes)) as pool:
+                for conn in conns:
+                    conn.failed = False
+                    conn.queue = Queue(self.app.put_queue_depth)
+                    pool.spawn(self._send_file, conn, req.path)
+                while True:
+                    with ChunkReadTimeout(self.app.client_timeout):
+                        try:
+                            chunk = next(data_source)
+                        except StopIteration:
+                            if chunked:
+                                for conn in conns:
+                                    conn.queue.put('0\r\n\r\n')
+                            break
+                    bytes_transferred += len(chunk)
+                    if bytes_transferred > constraints.MAX_FILE_SIZE:
+                        return HTTPRequestEntityTooLarge(request=req)
+                    for conn in list(conns):
+                        if not conn.failed:
+                            conn.queue.put(
+                                '%x\r\n%s\r\n' % (len(chunk), chunk)
+                                if chunked else chunk)
+                        else:
+                            conns.remove(conn)
+                    if len(conns) < min_conns:
+                        self.app.logger.error(_(
+                            'Object PUT exceptions during'
+                            ' send, %(conns)s/%(nodes)s required connections'),
+                            {'conns': len(conns), 'nodes': min_conns})
+                        return HTTPServiceUnavailable(request=req)
+                for conn in conns:
+                    if conn.queue.unfinished_tasks:
+                        conn.queue.join()
+            conns = [conn for conn in conns if not conn.failed]
+        except ChunkReadTimeout as err:
+            self.app.logger.warn(
+                _('ERROR Client read timeout (%ss)'), err.seconds)
+            self.app.logger.increment('client_timeouts')
+            return HTTPRequestTimeout(request=req)
+        except (Exception, Timeout):
+            self.app.logger.exception(
+                _('ERROR Exception causing client disconnect'))
+            return HTTPClientDisconnect(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.warn(
@@ -856,7 +733,7 @@ class ObjectController(Controller):
             return HTTPClientDisconnect(request=req)
 
         statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
-                                                                   obj_nodes)
+                                                                   nodes)
 
         if len(etags) > 1:
             self.app.logger.error(
@@ -928,10 +805,10 @@ class ObjectController(Controller):
 
                 copy_headers = {'X-Newest': 'True',
                                 'Destination': orig_container + '/' + orig_obj
-                }
+                                }
                 copy_environ = {'REQUEST_METHOD': 'COPY',
                                 'swift_versioned_copy': True
-                }
+                                }
                 creq = Request.blank(copy_path, headers=copy_headers,
                                      environ=copy_environ)
                 copy_resp = self.COPY(creq)
