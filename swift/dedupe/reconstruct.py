@@ -5,7 +5,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 
 from swift.proxy.controllers import base
 
-class DedupRecon(object):
+class DedupRespBody(object):
     def __init__(self, obj_ring, account_name, container_name, object_name):
         self.obj_ring = obj_ring
         self.account_name = account_name
@@ -18,3 +18,21 @@ class DedupRecon(object):
         resp = self.GETorHEAD_base(
             req, _('Object'), self.obj_ring, partition,
             req.swift_entity_path)
+        self.fingerprints = resp.body
+
+    def iter_fingerprint(self):
+        start = 0
+        end = 16
+        while end < len(self.fingerprins):
+            yield self.fingerprints[start:end]
+            start += 16
+            end += 16
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        str_fingerprints
+
+    def next(self):
+        return self.next()
