@@ -163,7 +163,8 @@ class Manager(object):
 
         self.servers = set()
         for name in self.server_names:
-            self.servers.add(Server(name, run_dir))
+            if 'proxy-server' != name:
+                self.servers.add(Server(name, run_dir))
 
     def __iter__(self):
         return iter(self.servers)

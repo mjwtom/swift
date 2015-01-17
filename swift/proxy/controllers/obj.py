@@ -466,6 +466,8 @@ class ObjectController(Controller):
         '''
         TODO: get the dedupe ring for chunk strorage, now we use the object ring 
         #dedupe_ring = self.app.get_dedupe_ring(ploicy_index)
+        TODO: the headers in request is not all changed. So there is maybe problems.
+        Please try to modify this
         '''
 
         # pass the policy index to storage nodes via req header
@@ -714,10 +716,6 @@ class ObjectController(Controller):
                         {'conns': len(conns), 'nodes': min_conns})
                     return HTTPServiceUnavailable(request=chunk_req)
 
-                '''
-                TODO:This part of code does not work. I do not know the reason
-                # I give up this and replace with one thread process
-                '''
                 with ContextPool(len(chunk_nodes)) as pool:
                     for conn in conns:
                         conn.failed = False
