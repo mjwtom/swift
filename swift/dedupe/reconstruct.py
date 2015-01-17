@@ -19,20 +19,27 @@ class DedupRespBody(object):
             req, _('Object'), self.obj_ring, partition,
             req.swift_entity_path)
         self.fingerprints = resp.body
-
-    def iter_fingerprint(self):
-        start = 0
-        end = 16
-        while end < len(self.fingerprins):
-            yield self.fingerprints[start:end]
-            start += 16
-            end += 16
+        self.fp_number = len(self.fingerprints) / 16
+        self.fp_cur = 0
 
     def __iter__(self):
         return self
 
-    def __next__(self):
-        str_fingerprints
+    def __next__(self, req):
+        if(self.fp_cur >= self.fp_number):
+            raise StopIteration
+        else:
+            fingerprint = self.fingerprints[self.fp_number*16:self.fp_number*16+16]
+            str_fingerprint = ''
+            for a in fingerprint:
+                str_fingerprint += hex(ord(a))[2:]
 
-    def next(self):
-        return self.next()
+        partition = self.obj_ring.get_part(
+            self.account_name, self.container_name, str_fingerprint)
+        resp = self.GETorHEAD_base(
+            req, _('Object'), self.obj_ring, partition,
+            req.swift_entity_path)
+
+
+    def next(self, req):
+        return self.next(req)
