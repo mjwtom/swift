@@ -64,7 +64,9 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 #mjw:import dedupe modules
 import copy
 from swift.dedupe.chunk import chunkIter
+from swift.dedupe.DedupeResp import RespBodyIter
 from hashlib import md5
+from swift.common.swob import Request, Response
 
 
 def copy_headers_into(from_r, to_r):
@@ -205,8 +207,30 @@ class ObjectController(Controller):
     @cors_validation
     @delay_denial
     def GET(self, req):
-        """Handler for HTTP GET requests."""
-        return self.GETorHEAD(req)
+        """Handler for HTTP GET requests for deduplication."""
+        # return self.GETorHEAD(req)
+        """Handle HTTP GET or HEAD requests."""
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        req.acl = container_info['read_acl']
+        # pass the policy index to storage nodes via req header
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
+        partition = obj_ring.get_part(
+            self.account_name, self.container_name, self.object_name)
+        resp = Response(request=req)
+        resp.app_iter = RespBodyIter(req, obj_ring, self.account_name, self.container_name, self.object_name)
+
+        if ';' in resp.headers.get('content-type', ''):
+            resp.content_type = clean_content_type(
+                resp.headers['content-type'])
+        return resp
 
     @public
     @cors_validation
