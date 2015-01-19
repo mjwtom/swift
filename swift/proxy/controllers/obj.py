@@ -225,7 +225,7 @@ class ObjectController(Controller):
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
         resp = Response(request=req)
-        resp.app_iter = RespBodyIter(req, obj_ring, self.account_name, self.container_name, self.object_name)
+        resp.app_iter = RespBodyIter(self.app, req, obj_ring, self.account_name, self.container_name, self.object_name)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(

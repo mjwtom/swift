@@ -3,10 +3,12 @@ TODO: Read the fingerprints from the object file
 according to the fingerprints. Read the corresponding data chunks to construct the data stream
 '''
 
-from swift.proxy.controllers import base
+from swift.proxy.controllers.base import Controller
+from swift import gettext_ as _
 
-class RespBodyIter(object):
-    def __init__(self, req, obj_ring, account_name, container_name, object_name):
+class RespBodyIter(Controller):
+    def __init__(self, app, req, obj_ring, account_name, container_name, object_name):
+        Controller.__init__(self, app)
         self.req = req
         self.obj_ring = obj_ring
         self.account_name = account_name
@@ -25,11 +27,12 @@ class RespBodyIter(object):
     def __iter__(self):
         return self
 
-    def __next__(self, req):
+    def __next__(self):
         if(self.fp_cur >= self.fp_number):
             raise StopIteration
         else:
-            fingerprint = self.fingerprints[self.fp_number*16:self.fp_number*16+16]
+            fingerprint = self.fingerprints[self.fp_cur*16:self.fp_cur*16+16]
+            self.fp_cur += 1
             str_fingerprint = ''
             for a in fingerprint:
                 str_fingerprint += hex(ord(a))[2:]
@@ -37,10 +40,9 @@ class RespBodyIter(object):
         partition = self.obj_ring.get_part(
             self.account_name, self.container_name, str_fingerprint)
         resp = self.GETorHEAD_base(
-            req, _('Object'), self.obj_ring, partition,
-            req.swift_entity_path)
+            self.req, _('Object'), self.obj_ring, partition,
+            self.req.swift_entity_path)
         return resp.body
 
-
-    def next(self, req):
-        return self.next(req)
+    def next(self):
+        return self.__next__()
