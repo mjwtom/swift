@@ -28,16 +28,14 @@ import itertools
 import mimetypes
 import time
 import math
-from swift import gettext_ as _
 from urllib import unquote, quote
-
 from eventlet import GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
+from swift import gettext_ as _
 from swift.common.utils import (
-    clean_content_type, config_true_value, ContextPool, csv_append, GreenPool,
-    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    clean_content_type, config_true_value, ContextPool, csv_append, GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, quorum_size, get_expirer_container)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
@@ -56,13 +54,14 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, \
-    HTTPClientDisconnect
+    HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
+
 #mjw:import dedupe modules
 import copy
+import os
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.DedupeResp import RespBodyIter
 from hashlib import md5
@@ -681,8 +680,9 @@ class ObjectController(Controller):
         delete_at_nodes = self._config_obj_expiration(req)
 
         '''
-        back up the length
+        back up the length and url
         '''
+        req_environ_path = req.environ['PATH_INFO']
         ori_req_len = req.headers['Content-Length']
         '''
         Store the fingerprints of each chunk
@@ -701,8 +701,13 @@ class ObjectController(Controller):
                 str_fp = m.hexdigest()
                 chunk_partition, chunk_nodes = obj_ring.get_nodes(
                     self.account_name, self.container_name, str_fp)
+                '''
+                change some information in chunk_req
+                '''
                 chunk_req = copy.copy(req)  #chunk_req = copy.deepcopy(req)
                 chunk_req.headers['Content-Length'] = str(len(chunk))
+                chunk_req.environ['PATH_INFO'] = os.path.dirname(req_environ_path)
+                chunk_req.environ['PATH_INFO'] = chunk_req.environ['PATH_INFO'] + '/' + str_fp
 
                 node_iter = GreenthreadSafeIterator(
                     self.iter_nodes_local_first(obj_ring, chunk_partition))
@@ -790,9 +795,7 @@ class ObjectController(Controller):
         '''
         The following code is used to send metadata (fingerprints) for object
         '''
-        '''
-        restore the length
-        '''
+        req.environ['PATH_INFO'] = req_environ_path
         req.headers['Content-Length'] = str(len(fingerprints))
 
         node_iter = GreenthreadSafeIterator(
