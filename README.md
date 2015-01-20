@@ -79,6 +79,9 @@ http://docs.openstack.org/api/openstack-object-storage/1.0/content/
 
 ----
 
+
+## Jingwei Ma (mjwtom@gmail.com), Deduplication is implemented partly
+
 For more information come hang out in #openstack-swift on freenode.
 
 Thanks,
