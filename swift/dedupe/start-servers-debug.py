@@ -7,7 +7,7 @@ if __name__ == '__main__':
     print ('Done')
     #start proxy-server
     print ('Starting Proxy Server......')
-    # os.system('/home/mjwtom/swift/bin/swift-proxy-server /etc/swift/proxy-server.conf &')
+    os.system('/home/mjwtom/swift/bin/swift-proxy-server /etc/swift/proxy-server.conf &')
     print ('Done')
     #start account server
     print ('Starting Account Servers......')
