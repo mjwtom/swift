@@ -4,6 +4,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 '''
 
 import os
+import binascii
 from swift.proxy.controllers.base import Controller
 from swift import gettext_ as _
 
@@ -36,9 +37,7 @@ class RespBodyIter(Controller):
         else:
             fingerprint = self.fingerprints[self.fp_cur*16:self.fp_cur*16+16]
             self.fp_cur += 1
-            str_fingerprint = ''
-            for a in fingerprint:
-                str_fingerprint += hex(ord(a))[2:]
+            str_fingerprint = binascii.hexlify(fingerprint)
 
         self.req.environ['PATH_INFO'] = os.path.dirname(self.req_environ_path)
         self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + str_fingerprint
