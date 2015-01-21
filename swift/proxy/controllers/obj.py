@@ -779,7 +779,8 @@ class ObjectController(Controller):
                     for conn in conns:
                         if conn.queue.unfinished_tasks:
                             conn.queue.join()
-
+                statuses, reasons, bodies, etags = self._get_put_responses(chunk_req, conns,
+                                                                            chunk_nodes)
             except StopIteration:
                 break
             except ChunkReadTimeout as err:
@@ -869,6 +870,8 @@ class ObjectController(Controller):
                 if conn.queue.unfinished_tasks:
                     conn.queue.join()
 
+        statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
+                                                                    obj_nodes)
         '''
         Restore the original request length
         '''
@@ -880,8 +883,6 @@ class ObjectController(Controller):
             self.app.logger.increment('client_disconnects')
             return HTTPClientDisconnect(request=req)
 
-        statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
-                                                                   obj_nodes)
 
         if len(etags) > 1:
             self.app.logger.error(
