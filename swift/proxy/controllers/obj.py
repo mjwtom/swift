@@ -781,6 +781,24 @@ class ObjectController(Controller):
                             conn.queue.join()
                 statuses, reasons, bodies, etags = self._get_put_responses(chunk_req, conns,
                                                                             chunk_nodes)
+                if len(etags) > 1:
+                    self.app.logger.error(
+                        _('Object servers returned %s mismatched etags'), len(etags))
+                    return HTTPServerError(request=req)
+                etag = etags.pop() if len(etags) else None
+                resp = self.best_response(req, statuses, reasons, bodies,
+                                          _('Object PUT'), etag=etag)
+                if source_header:
+                    acct, path = source_header.split('/', 3)[2:4]
+                    resp.headers['X-Copied-From-Account'] = quote(acct)
+                    resp.headers['X-Copied-From'] = quote(path)
+                    if 'last-modified' in source_resp.headers:
+                        resp.headers['X-Copied-From-Last-Modified'] = \
+                            source_resp.headers['last-modified']
+                    copy_headers_into(req, resp)
+                resp.last_modified = math.ceil(
+                    float(Timestamp(req.headers['X-Timestamp'])))
+
             except StopIteration:
                 break
             except ChunkReadTimeout as err:
