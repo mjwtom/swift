@@ -739,6 +739,7 @@ class ObjectController(Controller):
                 statuses = [conn.resp.status for conn in conns if conn.resp]
                 if statuses:
                     if all([HTTP_CONFLICT == status for status in statuses]):
+                        bytes_transferred += len(chunk)
                         continue
 
                 if chunk_req.if_none_match is not None and '*' in chunk_req.if_none_match:
