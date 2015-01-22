@@ -66,6 +66,7 @@ from swift.dedupe.chunk import chunkIter
 from swift.dedupe.DedupeResp import RespBodyIter
 from hashlib import md5
 from swift.common.swob import Request, Response
+from swift.common.http import HTTP_CONFLICT
 
 
 def copy_headers_into(from_r, to_r):
@@ -366,6 +367,11 @@ class ObjectController(Controller):
                     resp = conn.getexpect()
                 if resp.status == HTTP_CONTINUE:
                     conn.resp = None
+                    conn.node = node
+                    return conn
+                # added by mjw, the object is conflict, which means a duplicate
+                elif resp.status == HTTP_CONFLICT:
+                    conn.resp = resp
                     conn.node = node
                     return conn
                 elif is_success(resp.status):
@@ -729,6 +735,11 @@ class ObjectController(Controller):
 
                 conns = [conn for conn in pile if conn]
                 min_conns = quorum_size(len(chunk_nodes))
+                #If all the obj server show the chunk is duplicate, continue the loop
+                statuses = [conn.resp.status for conn in conns if conn.resp]
+                if statuses:
+                    if all([HTTP_CONFLICT == status for status in statuses]):
+                        continue
 
                 if chunk_req.if_none_match is not None and '*' in chunk_req.if_none_match:
                     statuses = [conn.resp.status for conn in conns if conn.resp]
