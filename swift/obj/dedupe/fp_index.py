@@ -41,10 +41,6 @@ def testselect():
             print row
 
 
-'''
+
 if __name__ == '__main__':
     unittest.main()
-'''
-
-testinsert()
-testselect()
