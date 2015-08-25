@@ -9,3 +9,6 @@ os.system('ps -aux | grep swift-account-server | grep -v grep | cut -c 9-15 | xa
 os.system('ps -aux | grep swift-container-server | grep -v grep | cut -c 9-15 | xargs kill -s 9')
 os.system('ps -aux | grep swift-object-server | grep -v grep | cut -c 9-15 | xargs kill -s 9')
 
+# remove the database file
+os.system('rm ~/*.db -rf')
+
