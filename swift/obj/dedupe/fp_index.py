@@ -4,7 +4,7 @@ import sqlite3
 import unittest
 
 
-class fp_index:
+class Fp_Index(object):
     def __init__(self, name):
         if name.endswith('.db'):
             self.name = name
@@ -25,7 +25,7 @@ class fp_index:
         self.c.execute('SELECT value FROM fp_index WHERE key=?', data)
         return self.c.fetchone()
 
-
+'''
 def testinsert():
     fp = fp_index('/home/mjwtom/mydb.db')
     for i in range(0, 100):
@@ -44,3 +44,4 @@ def testselect():
 
 if __name__ == '__main__':
     unittest.main()
+'''

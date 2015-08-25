@@ -29,6 +29,8 @@ from hashlib import md5
 from eventlet import sleep, wsgi, Timeout
 from eventlet.greenthread import spawn
 
+from swift.obj.dedupe.fp_index import Fp_Index
+
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
@@ -121,6 +123,9 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
+
+        # added by mjw
+        self.index = Fp_Index(conf.get('data_base'))
 
         default_allowed_headers = '''
             content-disposition,
@@ -516,6 +521,19 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
+        '''
+        mjw:
+        TODO: from the name of the object, check if the obj exists or not
+        '''
+
+        ret = self.index.lookup(obj)
+        if ret:
+            return HTTPConflict(
+                request=request)
+        self.index.insert(obj, '10000') # the value is not right
+        '''
+        mjw: end the check
+        '''
         req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
         if error_response:
