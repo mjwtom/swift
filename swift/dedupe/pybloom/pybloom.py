@@ -5,7 +5,7 @@ without increasing the false positive error_rate.
 
 Requires the bitarray library: http://pypi.python.org/pypi/bitarray/
 
-    >>> from pybloom import BloomFilter
+    >>> from swift.dedupe.pybloom.pybloom import BloomFilter
     >>> f = BloomFilter(capacity=10000, error_rate=0.001)
     >>> for i in range_fn(0, f.capacity):
     ...     _ = f.add(i)
@@ -19,7 +19,7 @@ Requires the bitarray library: http://pypi.python.org/pypi/bitarray/
     >>> (1.0 - (len(f) / float(f.capacity))) <= f.error_rate + 2e-18
     True
 
-    >>> from pybloom import ScalableBloomFilter
+    >>> from swift.dedupe.pybloom.pybloom import ScalableBloomFilter
     >>> sbf = ScalableBloomFilter(mode=ScalableBloomFilter.SMALL_SET_GROWTH)
     >>> count = 10000
     >>> for i in range_fn(0, count):
