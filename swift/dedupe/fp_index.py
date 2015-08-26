@@ -4,47 +4,25 @@ import sqlite3
 import unittest
 
 
-class fp_index(object):
+class Fp_Index(object):
     def __init__(self, name):
-        if name.endswith('.db') or (name == ':memory:'):
+        if name.endswith('.db'):
             self.name = name
         else:
             self.name = name + '.db'
-        self.conn = sqlite3.connect(self.name)
+        self.conn = sqlite3.connect(name)
         self.c = self.conn.cursor()
-        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (fp text, container_id text)''')
-        self.c.execute('''CREATE TABLE IF NOT EXISTS obj_fps (obj text, fps text)''')
-        self.c.execute('''CREATE TABLE IF NOT EXISTS obj_etag (obj text, etag text)''')
+        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (key text, value text)''')
 
 
-    def insert_fp_index(self, fp, container_id):
-        data = (fp, container_id)
+    def insert(self, key, value):
+        data = (key, value)
         self.c.execute('INSERT INTO fp_index VALUES (?, ?)', data)
         self.conn.commit()
 
-    def insert_obj_fps(self, obj_hash, fps):
-        data = (obj_hash, fps)
-        self.c.execute('INSERT INTO obj_fps VALUES (?, ?)', data)
-        self.conn.commit()
-
-    def lookup_fp_index(self, fp):
-        data = (fp,)
-        self.c.execute('SELECT container_id FROM fp_index WHERE fp=?', data)
-        return self.c.fetchone()[0]
-
-    def lookup_obj_fps(self, obj_hash):
-        data = (obj_hash,)
-        self.c.execute('SELECT value FROM fp_index WHERE obj=?', data)
-        return self.c.fetchone()[0]
-
-    def insert_etag(self, key, value):
-        data = (key, value)
-        self.c.execute('INSERT INTO obj_etag VALUES (?, ?)', data)
-        self.conn.commit()
-
-    def lookup_etag(self, key):
+    def lookup(self, key):
         data = (key,)
-        self.c.execute('SELECT etag FROM obj_etag WHERE obj=?', data)
+        self.c.execute('SELECT value FROM fp_index WHERE key=?', data)
         return self.c.fetchone()
 
 '''
