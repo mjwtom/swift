@@ -38,6 +38,9 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
 
+#mjw dedupe
+from swift.dedupe.fp_index import Fp_Index
+
 
 # List of entry points for mandatory middlewares.
 #
@@ -77,6 +80,9 @@ class Application(object):
             self.logger = logger
 
         self._error_limiting = {}
+
+        #mjw: get the index file (currently we use SQLite) though very slow
+        self.index =  Fp_Index(conf.get('data_base', '/etc/swift/index.db'))
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir

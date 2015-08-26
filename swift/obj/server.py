@@ -27,7 +27,7 @@ from hashlib import md5
 
 from eventlet import sleep, wsgi, Timeout
 
-from swift.obj.dedupe.fp_index import Fp_Index
+# from swift.obj.dedupe.fp_index import Fp_Index
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
@@ -92,8 +92,8 @@ class ObjectController(object):
             replication_server = config_true_value(replication_server)
         self.replication_server = replication_server
 
-        # added by mjw
-        self.index = Fp_Index(conf.get('data_base'))
+        # added by mjw I have moved it to proxy-server, which is better
+        # self.index = Fp_Index(conf.get('data_base'))
 
         default_allowed_headers = '''
             content-disposition,
@@ -399,13 +399,15 @@ class ObjectController(object):
         '''
         mjw:
         TODO: from the name of the object, check if the obj exists or not
+        I have move this to proxy-server, which seems better
         '''
-
+        '''
         ret = self.index.lookup(obj)
         if ret:
             return HTTPConflict(
                 request=request)
         self.index.insert(obj, '10000') # the value is not right
+        '''
         '''
         mjw: end the check
         '''

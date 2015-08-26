@@ -64,6 +64,7 @@ import copy
 import os
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.DedupeResp import RespBodyIter
+from swift.dedupe.fp_index import Fp_Index
 from hashlib import md5
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_CONFLICT
@@ -101,6 +102,7 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
+        # self.index = Fp_Index('/home/mjwtom/index.db') # mjw: need to be configurable
 
     def _listing_iter(self, lcontainer, lprefix, env):
         for page in self._listing_pages_iter(lcontainer, lprefix, env):
