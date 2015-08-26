@@ -102,7 +102,7 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-        # self.index = Fp_Index('/home/mjwtom/index.db') # mjw: need to be configurable
+        self.index = app.index
 
     def _listing_iter(self, lcontainer, lprefix, env):
         for page in self._listing_pages_iter(lcontainer, lprefix, env):
@@ -707,6 +707,12 @@ class ObjectController(Controller):
                 fingerprint = m.digest()
                 fingerprints += fingerprint
                 str_fp = m.hexdigest()
+                #check the index, if exists, continue
+                if self.index.lookup(str_fp):
+                    continue
+                else:
+                    self.index.insert(str_fp, '10000')
+
                 chunk_partition, chunk_nodes = obj_ring.get_nodes(
                     self.account_name, self.container_name, str_fp)
                 '''

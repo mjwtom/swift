@@ -11,4 +11,5 @@ os.system('ps -aux | grep swift-object-server | grep -v grep | cut -c 9-15 | xar
 
 # remove the database file
 os.system('rm ~/*.db -rf')
+os.system('rm /etc/swift/*.db -rf')
 
