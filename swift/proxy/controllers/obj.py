@@ -77,6 +77,7 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 import copy
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.DedupeResp import RespBodyIter
+from swift.dedupe.fp_index import Fp_Index
 from hashlib import md5
 from swift.common.swob import Request, Response
 
@@ -146,6 +147,7 @@ class BaseObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
+        # self.index = Fp_Index('/home/mjwtom/index.db') # mjw: need to be configurable
 
     def iter_nodes_local_first(self, ring, partition):
         """
