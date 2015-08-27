@@ -62,9 +62,10 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 #mjw:import dedupe modules
 import copy
 import os
+from swift.common.utils import hash_path
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.DedupeResp import RespBodyIter
-from swift.dedupe.fp_index import Fp_Index
+from swift.dedupe.dedupe import dedupe
 from hashlib import md5
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_CONFLICT
@@ -102,7 +103,7 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-        self.index = app.index
+        self.dedupe = app.dedupe
 
     def _listing_iter(self, lcontainer, lprefix, env):
         for page in self._listing_pages_iter(lcontainer, lprefix, env):
@@ -696,6 +697,7 @@ class ObjectController(Controller):
         Store the fingerprints of each chunk
         Segment the data stream to chunks
         '''
+        obj_hash = hash_path(self.account_name, self.container_name, self.object_name)
         fingerprints = ''
         chunk_src = iter(chunkIter(data_source))
         bytes_transferred = 0
@@ -708,10 +710,10 @@ class ObjectController(Controller):
                 fingerprints += fingerprint
                 str_fp = m.hexdigest()
                 #check the index, if exists, continue
-                if self.index.lookup(str_fp):
+                if self.dedupe.lookup(str_fp):
                     continue
                 else:
-                    self.index.insert(str_fp, '10000')
+                    self.dedupe.insert_fp_index(str_fp, '10000', obj_hash)
 
                 chunk_partition, chunk_nodes = obj_ring.get_nodes(
                     self.account_name, self.container_name, str_fp)
@@ -834,6 +836,9 @@ class ObjectController(Controller):
         '''
         The following code is used to send metadata (fingerprints) for object
         '''
+        #insert the ojb_hash and the fingerprints for the cache
+        self.dedupe.insert_obj_fps(obj_hash, fingerprints)
+
         req.environ['PATH_INFO'] = req_environ_path
         req.headers['Content-Length'] = str(len(fingerprints))
 
