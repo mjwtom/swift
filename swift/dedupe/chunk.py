@@ -14,14 +14,14 @@ class chunkIter(object):
     This class is to chunk the data string in to chunks based on cdc chunking method
     '''
 
-
-    def __init__(self, data_src, win_size=48, min=512, max=16 * 1024, target=8192, MAGIC=13):
+    def __init__(self, data_src, fixed_size= False, target=8192, win_size=48, min=512, max=16 * 1024, MAGIC=13):
         '''
         TO chunk the data according the the rabin fingerprint
         '''
         # initial some environments
         self.buf = ''
         self.data_src = data_src
+        self.fixed_size = fixed_size
         self.win_size = 48
         self.min = min
         self.max = max
@@ -32,7 +32,21 @@ class chunkIter(object):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def get_fixed(self):
+        if(len(self.buf) < self.target):
+            try:
+                self.buf=self.buf+next(self.data_src)
+            except StopIteration:
+                if(len(self.buf) > 0):
+                    return self.buf
+                raise StopIteration
+            except ChunkReadTimeout:
+                raise ChunkReadTimeout
+        buf = self.buf[:self.target]
+        self.buf = self.buf[self.target:]
+        return buf
+
+    def get_variable(self):
         '''
         method to return a chunk each call
         '''
@@ -85,6 +99,12 @@ class chunkIter(object):
                 return buf[:parsed]
             rabin.update()
             parsed += 1
+
+    def __next__(self):
+        if(self.fixed_size):
+            return self.get_fixed()
+        else:
+            return self.get_variable()
 
     def next(self):
         return self.__next__()
