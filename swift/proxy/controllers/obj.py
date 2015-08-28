@@ -699,7 +699,7 @@ class ObjectController(Controller):
         '''
         obj_hash = hash_path(self.account_name, self.container_name, self.object_name)
         fingerprints = ''
-        chunk_src = iter(chunkIter(data_source))
+        chunk_src = iter(chunkIter(data_source, self.dedupe.fixed_chunk))
         bytes_transferred = 0
 
         while True:

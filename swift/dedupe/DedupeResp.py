@@ -8,6 +8,7 @@ import binascii
 from swift.proxy.controllers.base import Controller
 from swift import gettext_ as _
 
+
 class RespBodyIter(Controller):
     def __init__(self, app, req, obj_ring, account_name, container_name, object_name):
         Controller.__init__(self, app)
