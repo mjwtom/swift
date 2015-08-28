@@ -2,6 +2,7 @@ __author__ = 'mjwtom'
 
 from swift.dedupe.repoze.lru import LRUCache
 
+
 class mycache(object):
     def __init__(self, size):
         self.lrucache = LRUCache(size)

@@ -89,7 +89,7 @@ class Application(object):
         self._error_limiting = {}
 
         #mjw: get the index file (currently we use SQLite) though very slow
-        self.dedupe =  dedupe(conf)
+        self.dedupe=dedupe(conf)
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir
