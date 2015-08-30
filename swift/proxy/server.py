@@ -45,6 +45,9 @@ from swift.common.exceptions import APIVersionError
 #mjw dedupe
 from swift.dedupe.dedupe import dedupe
 
+#mjw dedupe
+from swift.dedupe.dedupe import dedupe
+
 
 # List of entry points for mandatory middlewares.
 #

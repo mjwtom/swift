@@ -32,6 +32,8 @@ from eventlet.greenthread import spawn
 
 # from swift.obj.dedupe.fp_index import Fp_Index
 
+# from swift.obj.dedupe.fp_index import Fp_Index
+
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
@@ -123,6 +125,9 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
+
+        # added by mjw I have moved it to proxy-server, which is better
+        # self.index = Fp_Index(conf.get('data_base'))
 
         # added by mjw I have moved it to proxy-server, which is better
         # self.index = Fp_Index(conf.get('data_base'))
