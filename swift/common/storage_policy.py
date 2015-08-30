@@ -35,6 +35,9 @@ EC_POLICY = 'erasure_coding'
 DEFAULT_EC_OBJECT_SEGMENT_SIZE = 1048576
 
 
+DEDUPE_POLICY = 'deduplication'
+
+
 class BindPortsCache(object):
     def __init__(self, swift_dir, bind_ip):
         self.swift_dir = swift_dir
