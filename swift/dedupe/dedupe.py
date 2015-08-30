@@ -3,6 +3,7 @@ __author__ = 'mjwtom'
 from swift.dedupe.fp_index import fp_index
 from swift.dedupe.cache import mycache
 from swift.dedupe.pybloom.pybloom import BloomFilter
+from swift.dedupe.fingerprint import fingerprint
 
 class dedupe(object):
 
@@ -13,8 +14,7 @@ class dedupe(object):
         self.fixed_chunk = bool(conf.get('fixed_chunk', False))
 
     def lookup(self, key):
-        ret = key in self.bf
-        if 0 == ret:
+        if not (key in self.bf):
             return None
         ret = self.cache.get(key)
         if ret:
@@ -32,3 +32,6 @@ class dedupe(object):
     def load2cache(self, fingerprints):
         for f in fingerprints:
             self.cache.put(f, '0000')
+
+    def hash(self, data):
+        return fingerprint(data)
