@@ -1132,7 +1132,6 @@ class ReplicatedObjectController(BaseObjectController):
         nodes. After sending the data, the "best" response will be
         returned based on statuses from all connections
         """
-        #backup the length and path
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
@@ -1141,13 +1140,17 @@ class ReplicatedObjectController(BaseObjectController):
         container_nodes = container_info['nodes']
         container_partition = container_info['partition']
 
+        #backup the length and path
         obj_path = req.environ['PATH_INFO']
         obj_len = req.headers['Content-length']
+        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        etag_hasher = md5()
         fps = ''
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
         while True:
             try:
                 chunk = next(chunk_source)
+                etag_hasher.update(chunk) # update the checksum
                 hash = self.dedupe.hash(chunk)
                 fp = hash.hexdigest()
                 fps += fp
@@ -1200,6 +1203,7 @@ class ReplicatedObjectController(BaseObjectController):
             delete_at_container, delete_at_part, delete_at_nodes)
 
         resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
+        resp.headers['etag'] = etag_hasher.hexdigest().strip()
         return resp
 
     @public
