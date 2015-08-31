@@ -912,6 +912,39 @@ class ReplicatedObjectController(BaseObjectController):
             req.swift_entity_path)
         return resp
 
+    def _fix_response(self, resp):
+        # EC fragment archives each have different bytes, hence different
+        # etags. However, they all have the original object's etag stored in
+        # sysmeta, so we copy that here so the client gets it.
+        resp.headers['Etag'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Etag')
+        resp.headers['Content-Length'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Content-Length')
+        resp.fix_conditional_response()
+
+        return resp
+
+    def _dedupe_get_or_head_response(self, req, node_iter, partition, policy):
+
+        if req.method == 'HEAD':
+            # no fancy EC decoding here, just one plain old HEAD request to
+            # one object server because all fragments hold all metadata
+            # information about the object.
+            resp = self.GETorHEAD_base(
+                req, _('Object'), node_iter, partition,
+                req.swift_entity_path)
+        else:  # GET request
+            orig_range = None
+            range_specs = []
+            if req.range:
+                orig_range = req.range
+                range_specs = self._convert_range(req, policy)
+
+            req.range = orig_range
+            resp = Response(req)
+        self._fix_response(resp)
+        return resp
+
     def _connect_put_node(self, nodes, part, path, headers,
                           logger_thread_locals):
         """
@@ -1235,6 +1268,7 @@ class ReplicatedObjectController(BaseObjectController):
 
         resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
         resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
         return resp
 
     @public
@@ -1329,9 +1363,10 @@ class ReplicatedObjectController(BaseObjectController):
             self.account_name, self.container_name, self.object_name)
         node_iter = self.app.iter_nodes(obj_ring, partition)
 
-        resp = self._reroute(policy)._get_or_head_response(
-            req, node_iter, partition, policy)
-        resp._app_iter = RespBodyIter(req, self)
+        app_iter = RespBodyIter(req, self)
+        resp = app_iter.get_resp()
+        resp.app_iter = app_iter
+        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name)[0].strip()
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(
