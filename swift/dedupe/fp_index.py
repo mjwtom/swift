@@ -13,7 +13,8 @@ class fp_index(object):
         self.conn = sqlite3.connect(self.name)
         self.c = self.conn.cursor()
         self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (key text, value text, obj_hash text)''')
-        self.c.execute('''CREATE TABLE IF NOT EXISTS obj_fps (obj_hash text, fps)''')
+        self.c.execute('''CREATE TABLE IF NOT EXISTS obj_fps (obj text, fps text)''')
+        self.c.execute('''CREATE TABLE IF NOT EXISTS obj_etag (obj text, etag text)''')
 
 
     def insert_fp_index(self, key, value, obj_hash):
@@ -33,7 +34,17 @@ class fp_index(object):
 
     def lookup_obj_fps(self, obj_hash):
         data = (obj_hash,)
-        self.c.execute('SELECT value FROM fp_index WHERE key=?', data)
+        self.c.execute('SELECT value FROM fp_index WHERE obj=?', data)
+        return self.c.fetchone()
+
+    def insert_etag(self, key, value):
+        data = (key, value)
+        self.c.execute('INSERT INTO obj_etag VALUES (?, ?)', data)
+        self.conn.commit()
+
+    def lookup_etag(self, key):
+        data = (key,)
+        self.c.execute('SELECT etag FROM obj_etag WHERE obj=?', data)
         return self.c.fetchone()
 
 '''
