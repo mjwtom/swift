@@ -12,13 +12,13 @@ class fp_index(object):
             self.name = name + '.db'
         self.conn = sqlite3.connect(self.name)
         self.c = self.conn.cursor()
-        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (key text, value text, obj_hash text)''')
+        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (key text, value text, obj_hash text, container_id text)''')
         self.c.execute('''CREATE TABLE IF NOT EXISTS obj_fps (obj text, fps text)''')
         self.c.execute('''CREATE TABLE IF NOT EXISTS obj_etag (obj text, etag text)''')
 
 
-    def insert_fp_index(self, key, value, obj_hash):
-        data = (key, value, obj_hash)
+    def insert_fp_index(self, key, value, obj_hash, container_id):
+        data = (key, value, obj_hash, container_id)
         self.c.execute('INSERT INTO fp_index VALUES (?, ?, ?)', data)
         self.conn.commit()
 
