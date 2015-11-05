@@ -7,6 +7,7 @@ import os
 import binascii
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
+from swift.dedupe.dedupe_container import dedupe_container
 
 
 class RespBodyIter(object):
@@ -24,7 +25,7 @@ class RespBodyIter(object):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next_chunk__(self):
         if(self.fp_cur >= self.fp_number):
             self.req.environ['PATH_INFO'] = self.req_environ_path
             raise StopIteration
@@ -38,6 +39,29 @@ class RespBodyIter(object):
         self.controller.object_name = fingerprint
         resp = self.controller.GETorHEAD(self.req)
         return resp.body
+
+    def __next__(self):
+        if(self.fp_cur >= self.fp_number):
+            self.req.environ['PATH_INFO'] = self.req_environ_path
+            raise StopIteration
+        else:
+            fingerprint = self.fingerprints[self.fp_cur*self.fp_size:self.fp_cur*self.fp_size+self.fp_size]
+            self.fp_cur += 1
+        dedupe = self.controller.dedupe
+        container_id = dedupe.lookup()
+
+        if container_id == str(dedupe.container_count):
+            return dedupe.container.kv[fingerprint]
+
+        self.req.environ['PATH_INFO'] = os.path.dirname(self.req_environ_path)
+        self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + fingerprint
+
+        container = dedupe_container(container_id)
+
+        self.controller.object_name = fingerprint
+        resp = self.controller.GETorHEAD(self.req)
+        container.frombyte(resp.body)
+        return container.kv[fingerprint]
 
     def next(self):
         return self.__next__()
