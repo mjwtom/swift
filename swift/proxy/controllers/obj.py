@@ -1212,12 +1212,9 @@ class ReplicatedObjectController(BaseObjectController):
         etag_hasher = md5()
         fps = ''
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        counterrr = 0
         while True:
             try:
-                counterrr += 1
                 chunk = next(chunk_source)
-                ll = len(chunk)
                 etag_hasher.update(chunk) # update the checksum
                 hash = self.dedupe.hash(chunk)
                 fp = hash.hexdigest()
