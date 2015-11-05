@@ -12,14 +12,14 @@ class fp_index(object):
             self.name = name + '.db'
         self.conn = sqlite3.connect(self.name)
         self.c = self.conn.cursor()
-        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (key text, value text, obj_hash text, container_id text)''')
+        self.c.execute('''CREATE TABLE IF NOT EXISTS fp_index (fp text, container_id text)''')
         self.c.execute('''CREATE TABLE IF NOT EXISTS obj_fps (obj text, fps text)''')
         self.c.execute('''CREATE TABLE IF NOT EXISTS obj_etag (obj text, etag text)''')
 
 
-    def insert_fp_index(self, key, value, obj_hash, container_id):
-        data = (key, value, obj_hash, container_id)
-        self.c.execute('INSERT INTO fp_index VALUES (?, ?, ?)', data)
+    def insert_fp_index(self, fp, container_id):
+        data = (fp, container_id)
+        self.c.execute('INSERT INTO fp_index VALUES (?, ?)', data)
         self.conn.commit()
 
     def insert_obj_fps(self, obj_hash, fps):
@@ -27,9 +27,9 @@ class fp_index(object):
         self.c.execute('INSERT INTO obj_fps VALUES (?, ?)', data)
         self.conn.commit()
 
-    def lookup_fp_index(self, key):
-        data = (key,)
-        self.c.execute('SELECT value FROM fp_index WHERE key=?', data)
+    def lookup_fp_index(self, fp):
+        data = (fp,)
+        self.c.execute('SELECT container_id FROM fp_index WHERE fp=?', data)
         return self.c.fetchone()
 
     def lookup_obj_fps(self, obj_hash):

@@ -38,7 +38,9 @@ class chunkIter(object):
                 self.buf=self.buf+next(self.data_src)
             except StopIteration:
                 if(len(self.buf) > 0):
-                    return self.buf
+                    buf = self.buf
+                    self.buf = self.buf[len(self.buf):]
+                    return buf
                 raise StopIteration
             except ChunkReadTimeout:
                 raise ChunkReadTimeout
@@ -56,7 +58,9 @@ class chunkIter(object):
                 self.buf = self.buf + next(self.data_src)
             except StopIteration:
                 if (len(self.buf) > 0):
-                    return self.buf
+                    buf = self.buf
+                    self.buf = self.buf[len(self.buf):]
+                    return buf
                 raise StopIteration
             except ChunkReadTimeout:
                 raise ChunkReadTimeout
