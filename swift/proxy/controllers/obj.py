@@ -1155,7 +1155,7 @@ class ReplicatedObjectController(BaseObjectController):
             float(Timestamp(req.headers['X-Timestamp'])))
         return resp
 
-    def _dedupe_store_object(self, req, data_source,
+    def _dedupe_store_object_1b1(self, req, data_source,
                              chunk_ring, object_name):
         """
         Store a replicated object.
@@ -1205,6 +1205,97 @@ class ReplicatedObjectController(BaseObjectController):
                     delete_at_container, delete_at_part, delete_at_nodes)
 
                 self._store_chunk(req, chunk, nodes, partition, outgoing_headers)
+            except StopIteration:
+                break
+
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        partition, nodes = chunk_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        #update the req
+        req.headers['Content-Length'] = str(len(fps))
+        req.environ['PATH_INFO'] = obj_path
+         # check if object is set to be automatically deleted (i.e. expired)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
+
+        # add special headers to be handled by storage nodes
+        outgoing_headers = self._backend_requests(
+            req, len(nodes), container_partition, container_nodes,
+            delete_at_container, delete_at_part, delete_at_nodes)
+
+        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
+        resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
+        return resp
+
+    def _dedupe_store_object(self, req, data_source,
+                             chunk_ring, object_name):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        container_nodes = container_info['nodes']
+        container_partition = container_info['partition']
+
+        #backup the length and path
+        obj_path = req.environ['PATH_INFO']
+        obj_len = req.headers['Content-length']
+        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        etag_hasher = md5()
+        fps = ''
+        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        while True:
+            try:
+                chunk = next(chunk_source)
+                etag_hasher.update(chunk) # update the checksum
+                hash = self.dedupe.hash(chunk)
+                fp = hash.hexdigest()
+                fps += fp
+                ret = self.dedupe.lookup(fp)
+                if ret:
+                    continue
+                self.dedupe.insert_fp_index(fp, '', object_name)
+                self.dedupe.container.add(fp, chunk)
+                if not self.dedupe.container.is_full():
+                    continue
+                # the container is full, we send it to different locations
+                data = self.dedupe.container.tobyte()
+                partition, nodes = chunk_ring.get_nodes(self.account_name,
+                                                        self.container_name, self.dedupe.container.name)
+                req.headers['Content-Length'] = str(len(data))
+                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
+                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+ self.dedupe.container.name
+                 # check if object is set to be automatically deleted (i.e. expired)
+                req, delete_at_container, delete_at_part, \
+                    delete_at_nodes = self._config_obj_expiration(req)
+
+                # add special headers to be handled by storage nodes
+                outgoing_headers = self._backend_requests(
+                    req, len(nodes), container_partition, container_nodes,
+                    delete_at_container, delete_at_part, delete_at_nodes)
+
+                self._store_chunk(req, data, nodes, partition, outgoing_headers)
             except StopIteration:
                 break
 
