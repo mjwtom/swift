@@ -26,9 +26,9 @@ class dedupe(object):
         ret = self.index.lookup_fp_index(key)
         return ret
 
-    def insert_fp_index(self, key, value, obj_hash):
-        self.bf.add(key)
-        self.index.insert_fp_index(key, value, obj_hash)
+    def insert_fp_index(self, fp, container_id):
+        self.bf.add(fp)
+        self.index.insert_fp_index(fp, container_id)
 
     def insert_obj_fps(self, obj_hash, fps):
         self.index.insert_obj_fps(obj_hash, fps)

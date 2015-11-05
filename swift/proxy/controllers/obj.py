@@ -78,6 +78,7 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 from swift.dedupe.chunk import chunkIter
 import os
 from swift.dedupe.DedupeResp import RespBodyIter
+from swift.dedupe.dedupe_container import dedupe_container
 
 
 def copy_headers_into(from_r, to_r):
@@ -1265,9 +1266,12 @@ class ReplicatedObjectController(BaseObjectController):
         etag_hasher = md5()
         fps = ''
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        counterrr = 0
         while True:
             try:
+                counterrr += 1
                 chunk = next(chunk_source)
+                ll = len(chunk)
                 etag_hasher.update(chunk) # update the checksum
                 hash = self.dedupe.hash(chunk)
                 fp = hash.hexdigest()
@@ -1275,7 +1279,7 @@ class ReplicatedObjectController(BaseObjectController):
                 ret = self.dedupe.lookup(fp)
                 if ret:
                     continue
-                self.dedupe.insert_fp_index(fp, '', object_name)
+                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
                 self.dedupe.container.add(fp, chunk)
                 if not self.dedupe.container.is_full():
                     continue
@@ -1296,6 +1300,45 @@ class ReplicatedObjectController(BaseObjectController):
                     delete_at_container, delete_at_part, delete_at_nodes)
 
                 self._store_chunk(req, data, nodes, partition, outgoing_headers)
+
+                self.dedupe.container_count += 1
+                self.dedupe.container = dedupe_container(str(self.dedupe.container_count),
+                                                         self.dedupe.dedupe_container_size)
+
+                '''
+
+                policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+                policy = POLICIES.get_by_index(policy_index)
+                if not nodes:
+                    return HTTPNotFound()
+
+                # RFC2616:8.2.3 disallows 100-continue without a body
+                if (req.content_length > 0) or req.is_chunked:
+                    expect = True
+                else:
+                    expect = False
+
+                conns = self._get_put_connections(req, nodes, partition,
+                                          outgoing_headers, policy, expect)
+                min_conns = quorum_size(len(nodes))
+                try:
+                    # check that a minimum number of connections were established and
+                    # meet all the correct conditions set in the request
+                    self._check_failure_put_connections(conns, req, nodes, min_conns)
+
+                    # transfer data
+                    self._transfer_data(req, data_source, conns, nodes)
+
+                    # get responses
+                    statuses, reasons, bodies, etags = self._get_put_responses(
+                        req, conns, nodes)
+                except HTTPException as resp:
+                    return resp
+                finally:
+                    for conn in conns:
+                        conn.close()
+                '''
+
             except StopIteration:
                 break
 
