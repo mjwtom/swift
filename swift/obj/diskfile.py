@@ -68,6 +68,8 @@ from swift.common.storage_policy import (
     REPL_POLICY, EC_POLICY)
 from functools import partial
 
+#mjw dedupe
+from swift.common.storage_policy import DEDUPE_POLICY
 
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
@@ -2421,3 +2423,113 @@ class ECDiskFileManager(BaseDiskFileManager):
 
         hash_per_fi = self._hash_suffix_dir(path, mapper, reclaim_age)
         return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())
+
+
+@DiskFileRouter.register(DEDUPE_POLICY)
+class DedupeDiskFileManager(BaseDiskFileManager):
+    diskfile_cls = DiskFile
+
+    def parse_on_disk_filename(self, filename):
+        """
+        Returns the timestamp extracted .data file name.
+
+        :param filename: the data file name including extension
+        :returns: a dict, with keys for timestamp, and ext:
+
+            * timestamp is a :class:`~swift.common.utils.Timestamp`
+            * ext is a string, the file extension including the leading dot or
+              the empty string if the filename has no extenstion.
+
+        :raises DiskFileError: if any part of the filename is not able to be
+                               validated.
+        """
+        filename, ext = splitext(filename)
+        return {
+            'timestamp': Timestamp(filename),
+            'ext': ext,
+        }
+
+    def _gather_on_disk_file(self, filename, ext, context, frag_index=None,
+                             **kwargs):
+        """
+        Called by gather_ondisk_files() for each file in an object
+        datadir in reverse sorted order. If a file is considered part of a
+        valid on-disk file set it will be added to the context dict, keyed by
+        its extension. If a file is considered to be obsolete it will be added
+        to a list stored under the key 'obsolete' in the context dict.
+
+        :param filename: name of file to be accepted or not
+        :param ext: extension part of filename
+        :param context: a context dict that may have been populated by previous
+                        calls to this method
+        :returns: True if a valid file set has been found, False otherwise
+        """
+
+        # if first file with given extension then add filename to context
+        # dict and return True
+        accept_first = lambda: context.setdefault(ext, filename) == filename
+        # add the filename to the list of obsolete files in context dict
+        discard = lambda: context.setdefault('obsolete', []).append(filename)
+        # set a flag in the context dict indicating that a valid fileset has
+        # been found
+        set_valid_fileset = lambda: context.setdefault('found_valid', True)
+        # return True if the valid fileset flag is set in the context dict
+        have_valid_fileset = lambda: context.get('found_valid')
+
+        if ext == '.data':
+            if have_valid_fileset():
+                # valid fileset means we must have a newer
+                # .data or .ts, so discard the older .data file
+                discard()
+            else:
+                accept_first()
+                set_valid_fileset()
+        elif ext == '.ts':
+            if have_valid_fileset() or not accept_first():
+                # newer .data or .ts already found so discard this
+                discard()
+            if not have_valid_fileset():
+                # remove any .meta that may have been previously found
+                context.pop('.meta', None)
+            set_valid_fileset()
+        elif ext == '.meta':
+            if have_valid_fileset() or not accept_first():
+                # newer .data, .durable or .ts already found so discard this
+                discard()
+        else:
+            # ignore unexpected files
+            pass
+        return have_valid_fileset()
+
+    def _verify_on_disk_files(self, accepted_files, **kwargs):
+        """
+        Verify that the final combination of on disk files complies with the
+        replicated diskfile contract.
+
+        :param accepted_files: files that have been found and accepted
+        :returns: True if the file combination is compliant, False otherwise
+        """
+        # mimic legacy behavior - .meta is ignored when .ts is found
+        if accepted_files.get('.ts'):
+            accepted_files.pop('.meta', None)
+
+        data_file, meta_file, ts_file, durable_file = tuple(
+            [accepted_files.get(ext)
+             for ext in ('.data', '.meta', '.ts', '.durable')])
+
+        return ((data_file is None and meta_file is None and ts_file is None)
+                or (ts_file is not None and data_file is None
+                    and meta_file is None)
+                or (data_file is not None and ts_file is None))
+
+    def _hash_suffix(self, path, reclaim_age):
+        """
+        Performs reclamation and returns an md5 of all (remaining) files.
+
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :raises PathNotDir: if given path is not a valid directory
+        :raises OSError: for non-ENOTDIR errors
+        """
+        mapper = lambda filename: (None, filename)
+        hashes = self._hash_suffix_dir(path, mapper, reclaim_age)
+        return hashes[None].hexdigest()
