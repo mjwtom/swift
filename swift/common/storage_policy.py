@@ -510,6 +510,27 @@ class ECStoragePolicy(BaseStoragePolicy):
         return self._ec_quorum_size
 
 
+@BaseStoragePolicy.register(DEDUPE_POLICY)
+class DedupeStoragePolicy(BaseStoragePolicy):
+    """
+    Represents a storage policy of type 'replication'.  Default storage policy
+    class unless otherwise overridden from swift.conf.
+
+    Not meant to be instantiated directly; use
+    :func:`~swift.common.storage_policy.reload_storage_policies` to load
+    POLICIES from ``swift.conf``.
+    """
+
+    @property
+    def quorum(self):
+        """
+        Quorum concept in the replication case:
+            floor(number of replica / 2) + 1
+        """
+        if not self.object_ring:
+            raise PolicyError('Ring is not loaded')
+        return quorum_size(self.object_ring.replica_count)
+
 class StoragePolicyCollection(object):
     """
     This class represents the collection of valid storage policies for the

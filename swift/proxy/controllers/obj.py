@@ -74,6 +74,14 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
 
+#mjw dedupe
+import os
+from swift.dedupe.chunk import chunkIter
+from swift.dedupe.dedupe_container import dedupe_container
+from swift.common.storage_policy import DEDUPE_POLICY
+from swift.dedupe.DedupeResp import RespBodyIter
+
+
 def copy_headers_into(from_r, to_r):
     """
     Will copy desired headers from from_r to to_r
