@@ -87,6 +87,7 @@ from swift.dedupe.chunk import chunkIter
 import os
 from swift.dedupe.DedupeResp import RespBodyIter
 from swift.dedupe.dedupe_container import dedupe_container
+from swift.common.storage_policy import DEDUPE_POLICY
 
 
 def copy_headers_into(from_r, to_r):
