@@ -30,10 +30,6 @@ from hashlib import md5
 from eventlet import sleep, wsgi, Timeout
 from eventlet.greenthread import spawn
 
-# from swift.obj.dedupe.fp_index import Fp_Index
-
-# from swift.obj.dedupe.fp_index import Fp_Index
-
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
