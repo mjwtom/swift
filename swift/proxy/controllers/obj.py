@@ -902,49 +902,10 @@ class BaseObjectController(Controller):
 @ObjectControllerRouter.register(REPL_POLICY)
 class ReplicatedObjectController(BaseObjectController):
 
-    def __init__(self, app, account_name, container_name, object_name,
-                 **kwargs):
-        BaseObjectController.__init__(self, app, account_name, container_name, object_name,
-                                      **kwargs)
-        self.dedupe = app.dedupe
-
     def _get_or_head_response(self, req, node_iter, partition, policy):
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
             req.swift_entity_path)
-        return resp
-
-    def _fix_response(self, resp):
-        # EC fragment archives each have different bytes, hence different
-        # etags. However, they all have the original object's etag stored in
-        # sysmeta, so we copy that here so the client gets it.
-        resp.headers['Etag'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Etag')
-        resp.headers['Content-Length'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Content-Length')
-        resp.fix_conditional_response()
-
-        return resp
-
-    def _dedupe_get_or_head_response(self, req, node_iter, partition, policy):
-
-        if req.method == 'HEAD':
-            # no fancy EC decoding here, just one plain old HEAD request to
-            # one object server because all fragments hold all metadata
-            # information about the object.
-            resp = self.GETorHEAD_base(
-                req, _('Object'), node_iter, partition,
-                req.swift_entity_path)
-        else:  # GET request
-            orig_range = None
-            range_specs = []
-            if req.range:
-                orig_range = req.range
-                range_specs = self._convert_range(req, policy)
-
-            req.range = orig_range
-            resp = Response(req)
-        self._fix_response(resp)
         return resp
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -1127,382 +1088,6 @@ class ReplicatedObjectController(BaseObjectController):
                                   _('Object PUT'), etag=etag)
         resp.last_modified = math.ceil(
             float(Timestamp(req.headers['X-Timestamp'])))
-        return resp
-
-    def _store_chunk(self, req, chunk, nodes, partition,
-                     outgoing_headers):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        # RFC2616:8.2.3 disallows 100-continue without a body
-        if (req.content_length > 0) or req.is_chunked:
-            expect = True
-        else:
-            expect = False
-        conns = self._get_put_connections(req, nodes, partition,
-                                          outgoing_headers, policy, expect)
-        min_conns = quorum_size(len(nodes))
-        try:
-            # check that a minimum number of connections were established and
-            # meet all the correct conditions set in the request
-            self._check_failure_put_connections(conns, req, nodes, min_conns)
-
-            # transfer data
-            # self._transfer_data(req, chunk, conns, nodes)
-            for conn in conns:
-                try:
-                    with ChunkWriteTimeout(self.app.node_timeout):
-                        conn.send(chunk)
-                except (Exception, ChunkWriteTimeout):
-                    self.app.exception_occurred(
-                        conn.node, _('Object'),
-                        _('Trying to write to %s') % req.path)
-
-            # get responses
-            statuses, reasons, bodies, etags = self._get_put_responses(
-                req, conns, nodes)
-        except HTTPException as resp:
-            return resp
-        finally:
-            for conn in conns:
-                conn.close()
-
-        if len(etags) > 1:
-            self.app.logger.error(
-                _('Object servers returned %s mismatched etags'), len(etags))
-            return HTTPServerError(request=req)
-        etag = etags.pop() if len(etags) else None
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Object PUT'), etag=etag)
-        resp.last_modified = math.ceil(
-            float(Timestamp(req.headers['X-Timestamp'])))
-        return resp
-
-    def _dedupe_store_object_1b1(self, req, data_source,
-                             chunk_ring, object_name):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
-
-        #backup the length and path
-        obj_path = req.environ['PATH_INFO']
-        obj_len = req.headers['Content-length']
-        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
-        etag_hasher = md5()
-        fps = ''
-        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        while True:
-            try:
-                chunk = next(chunk_source)
-                etag_hasher.update(chunk) # update the checksum
-                hash = self.dedupe.hash(chunk)
-                fp = hash.hexdigest()
-                fps += fp
-                ret = self.dedupe.lookup(fp)
-                if ret:
-                    continue
-                self.dedupe.insert_fp_index(fp, '', object_name)
-                partition, nodes = chunk_ring.get_nodes(self.account_name, self.container_name, fp)
-                req.headers['Content-Length'] = str(len(chunk))
-                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
-                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+fp
-                 # check if object is set to be automatically deleted (i.e. expired)
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-
-                # add special headers to be handled by storage nodes
-                outgoing_headers = self._backend_requests(
-                    req, len(nodes), container_partition, container_nodes,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-
-                self._store_chunk(req, chunk, nodes, partition, outgoing_headers)
-            except StopIteration:
-                break
-
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        partition, nodes = chunk_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        #update the req
-        req.headers['Content-Length'] = str(len(fps))
-        req.environ['PATH_INFO'] = obj_path
-         # check if object is set to be automatically deleted (i.e. expired)
-        req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
-
-        # add special headers to be handled by storage nodes
-        outgoing_headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
-
-        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
-        resp.headers['etag'] = etag_hasher.hexdigest().strip()
-        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
-        return resp
-
-    def _dedupe_store_object(self, req, data_source,
-                             chunk_ring, object_name):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
-
-        #backup the length and path
-        obj_path = req.environ['PATH_INFO']
-        obj_len = req.headers['Content-length']
-        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
-        etag_hasher = md5()
-        fps = ''
-        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        while True:
-            try:
-                chunk = next(chunk_source)
-                etag_hasher.update(chunk) # update the checksum
-                hash = self.dedupe.hash(chunk)
-                fp = hash.hexdigest()
-                fps += fp
-                ret = self.dedupe.lookup(fp)
-                if ret:
-                    continue
-                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
-                self.dedupe.container.add(fp, chunk)
-                if not self.dedupe.container.is_full():
-                    continue
-                # the container is full, we send it to different locations
-                data = self.dedupe.container.tobyte()
-                partition, nodes = chunk_ring.get_nodes(self.account_name,
-                                                        self.container_name, self.dedupe.container.name)
-                req.headers['Content-Length'] = str(len(data))
-                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
-                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+ self.dedupe.container.name
-                 # check if object is set to be automatically deleted (i.e. expired)
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-
-                # add special headers to be handled by storage nodes
-                outgoing_headers = self._backend_requests(
-                    req, len(nodes), container_partition, container_nodes,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-
-                self._store_chunk(req, data, nodes, partition, outgoing_headers)
-
-                self.dedupe.container_count += 1
-                self.dedupe.container = dedupe_container(str(self.dedupe.container_count),
-                                                         self.dedupe.dedupe_container_size)
-
-                '''
-
-                policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-                policy = POLICIES.get_by_index(policy_index)
-                if not nodes:
-                    return HTTPNotFound()
-
-                # RFC2616:8.2.3 disallows 100-continue without a body
-                if (req.content_length > 0) or req.is_chunked:
-                    expect = True
-                else:
-                    expect = False
-
-                conns = self._get_put_connections(req, nodes, partition,
-                                          outgoing_headers, policy, expect)
-                min_conns = quorum_size(len(nodes))
-                try:
-                    # check that a minimum number of connections were established and
-                    # meet all the correct conditions set in the request
-                    self._check_failure_put_connections(conns, req, nodes, min_conns)
-
-                    # transfer data
-                    self._transfer_data(req, data_source, conns, nodes)
-
-                    # get responses
-                    statuses, reasons, bodies, etags = self._get_put_responses(
-                        req, conns, nodes)
-                except HTTPException as resp:
-                    return resp
-                finally:
-                    for conn in conns:
-                        conn.close()
-                '''
-
-            except StopIteration:
-                break
-
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        partition, nodes = chunk_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        #update the req
-        req.headers['Content-Length'] = str(len(fps))
-        req.environ['PATH_INFO'] = obj_path
-         # check if object is set to be automatically deleted (i.e. expired)
-        req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
-
-        # add special headers to be handled by storage nodes
-        outgoing_headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
-
-        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
-        resp.headers['etag'] = etag_hasher.hexdigest().strip()
-        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
-        return resp
-
-    @public
-    @cors_validation
-    @delay_denial
-    def PUT(self, req):
-        """HTTP PUT request handler."""
-        if req.if_none_match is not None and '*' not in req.if_none_match:
-            # Sending an etag with if-none-match isn't currently supported
-            return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body='If-None-Match only supports *')
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
-        partition, nodes = obj_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-
-        # pass the policy index to storage nodes via req header
-        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
-        req.acl = container_info['write_acl']
-        req.environ['swift_sync_key'] = container_info['sync_key']
-
-        # is request authorized
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
-
-        if not container_info['nodes']:
-            return HTTPNotFound(request=req)
-
-        # update content type in case it is missing
-        self._update_content_type(req)
-
-        # check constraints on object name and request headers
-        error_response = check_object_creation(req, self.object_name) or \
-            check_content_type(req)
-        if error_response:
-            return error_response
-
-        self._update_x_timestamp(req)
-
-        # check if request is a COPY of an existing object
-        source_header = req.headers.get('X-Copy-From')
-        if source_header:
-            error_response, req, data_source, update_response = \
-                self._handle_copy_request(req)
-            if error_response:
-                return error_response
-        else:
-            reader = req.environ['wsgi.input'].read
-            data_source = iter(lambda: reader(self.app.client_chunk_size), '')
-            update_response = lambda req, resp: resp
-
-        # check if object is set to be automatically deleted (i.e. expired)
-        req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
-
-        # add special headers to be handled by storage nodes
-        outgoing_headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
-
-        # send object to storage nodes
-        resp = self._dedupe_store_object(
-            req, data_source, obj_ring, self.object_name)
-        return update_response(req, resp)
-
-    @public
-    @cors_validation
-    @delay_denial
-    def GET(self, req):
-        """Handle HTTP GET or HEAD requests."""
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        req.acl = container_info['read_acl']
-        # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        policy = POLICIES.get_by_index(policy_index)
-        obj_ring = self.app.get_object_ring(policy_index)
-        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
-        partition = obj_ring.get_part(
-            self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition)
-
-        app_iter = RespBodyIter(req, self)
-        resp = app_iter.get_resp()
-        resp.app_iter = app_iter
-        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name)[0].strip()
-
-        if ';' in resp.headers.get('content-type', ''):
-            resp.content_type = clean_content_type(
-                resp.headers['content-type'])
         return resp
 
 
@@ -2922,4 +2507,605 @@ class ECObjectController(BaseObjectController):
                                   quorum_size=min_conns)
         resp.last_modified = math.ceil(
             float(Timestamp(req.headers['X-Timestamp'])))
+        return resp
+
+
+@ObjectControllerRouter.register(DEDUPE_POLICY)
+class DeduplicationObjectController(BaseObjectController):
+
+    def __init__(self, app, account_name, container_name, object_name,
+                 **kwargs):
+        BaseObjectController.__init__(self, app, account_name, container_name, object_name,
+                                      **kwargs)
+        self.dedupe = app.dedupe
+
+    def _get_or_head_response(self, req, node_iter, partition, policy):
+        resp = self.GETorHEAD_base(
+            req, _('Object'), node_iter, partition,
+            req.swift_entity_path)
+        return resp
+
+    def _fix_response(self, resp):
+        # EC fragment archives each have different bytes, hence different
+        # etags. However, they all have the original object's etag stored in
+        # sysmeta, so we copy that here so the client gets it.
+        resp.headers['Etag'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Etag')
+        resp.headers['Content-Length'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Content-Length')
+        resp.fix_conditional_response()
+
+        return resp
+
+    def _dedupe_get_or_head_response(self, req, node_iter, partition, policy):
+
+        if req.method == 'HEAD':
+            # no fancy EC decoding here, just one plain old HEAD request to
+            # one object server because all fragments hold all metadata
+            # information about the object.
+            resp = self.GETorHEAD_base(
+                req, _('Object'), node_iter, partition,
+                req.swift_entity_path)
+        else:  # GET request
+            orig_range = None
+            range_specs = []
+            if req.range:
+                orig_range = req.range
+                range_specs = self._convert_range(req, policy)
+
+            req.range = orig_range
+            resp = Response(req)
+        self._fix_response(resp)
+        return resp
+
+    def _connect_put_node(self, nodes, part, path, headers,
+                          logger_thread_locals):
+        """
+        Make a connection for a replicated object.
+
+        Connects to the first working node that it finds in node_iter
+        and sends over the request headers. Returns an HTTPConnection
+        object to handle the rest of the streaming.
+        """
+        self.app.logger.thread_locals = logger_thread_locals
+        for node in nodes:
+            try:
+                start_time = time.time()
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(
+                        node['ip'], node['port'], node['device'], part, 'PUT',
+                        path, headers)
+                self.app.set_node_timing(node, time.time() - start_time)
+                with Timeout(self.app.node_timeout):
+                    resp = conn.getexpect()
+                if resp.status == HTTP_CONTINUE:
+                    conn.resp = None
+                    conn.node = node
+                    return conn
+                elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
+                    conn.resp = resp
+                    conn.node = node
+                    return conn
+                elif headers['If-None-Match'] is not None and \
+                        resp.status == HTTP_PRECONDITION_FAILED:
+                    conn.resp = resp
+                    conn.node = node
+                    return conn
+                elif resp.status == HTTP_INSUFFICIENT_STORAGE:
+                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                elif is_server_error(resp.status):
+                    self.app.error_occurred(
+                        node,
+                        _('ERROR %(status)d Expect: 100-continue '
+                          'From Object Server') % {
+                              'status': resp.status})
+            except (Exception, Timeout):
+                self.app.exception_occurred(
+                    node, _('Object'),
+                    _('Expect: 100-continue on %s') % path)
+
+    def _send_file(self, conn, path):
+        """Method for a file PUT coro"""
+        while True:
+            chunk = conn.queue.get()
+            if not conn.failed:
+                try:
+                    with ChunkWriteTimeout(self.app.node_timeout):
+                        conn.send(chunk)
+                except (Exception, ChunkWriteTimeout):
+                    conn.failed = True
+                    self.app.exception_occurred(
+                        conn.node, _('Object'),
+                        _('Trying to write to %s') % path)
+            conn.queue.task_done()
+
+    def _transfer_data(self, req, data_source, conns, nodes):
+        """
+        Transfer data for a replicated object.
+
+        This method was added in the PUT method extraction change
+        """
+        min_conns = quorum_size(len(nodes))
+        bytes_transferred = 0
+        try:
+            with ContextPool(len(nodes)) as pool:
+                for conn in conns:
+                    conn.failed = False
+                    conn.queue = Queue(self.app.put_queue_depth)
+                    pool.spawn(self._send_file, conn, req.path)
+                while True:
+                    with ChunkReadTimeout(self.app.client_timeout):
+                        try:
+                            chunk = next(data_source)
+                        except StopIteration:
+                            if req.is_chunked:
+                                for conn in conns:
+                                    conn.queue.put('0\r\n\r\n')
+                            break
+                    bytes_transferred += len(chunk)
+                    if bytes_transferred > constraints.MAX_FILE_SIZE:
+                        raise HTTPRequestEntityTooLarge(request=req)
+                    for conn in list(conns):
+                        if not conn.failed:
+                            conn.queue.put(
+                                '%x\r\n%s\r\n' % (len(chunk), chunk)
+                                if req.is_chunked else chunk)
+                        else:
+                            conn.close()
+                            conns.remove(conn)
+                    self._check_min_conn(
+                        req, conns, min_conns,
+                        msg='Object PUT exceptions during'
+                            ' send, %(conns)s/%(nodes)s required connections')
+                for conn in conns:
+                    if conn.queue.unfinished_tasks:
+                        conn.queue.join()
+            conns = [conn for conn in conns if not conn.failed]
+            self._check_min_conn(
+                req, conns, min_conns,
+                msg='Object PUT exceptions after last send, '
+                '%(conns)s/%(nodes)s required connections')
+        except ChunkReadTimeout as err:
+            self.app.logger.warn(
+                _('ERROR Client read timeout (%ss)'), err.seconds)
+            self.app.logger.increment('client_timeouts')
+            raise HTTPRequestTimeout(request=req)
+        except HTTPException:
+            raise
+        except (Exception, Timeout):
+            self.app.logger.exception(
+                _('ERROR Exception causing client disconnect'))
+            raise HTTPClientDisconnect(request=req)
+        if req.content_length and bytes_transferred < req.content_length:
+            req.client_disconnect = True
+            self.app.logger.warn(
+                _('Client disconnected without sending enough data'))
+            self.app.logger.increment('client_disconnects')
+            raise HTTPClientDisconnect(request=req)
+
+    def _store_object(self, req, data_source, nodes, partition,
+                      outgoing_headers):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        # RFC2616:8.2.3 disallows 100-continue without a body
+        if (req.content_length > 0) or req.is_chunked:
+            expect = True
+        else:
+            expect = False
+        conns = self._get_put_connections(req, nodes, partition,
+                                          outgoing_headers, policy, expect)
+        min_conns = quorum_size(len(nodes))
+        try:
+            # check that a minimum number of connections were established and
+            # meet all the correct conditions set in the request
+            self._check_failure_put_connections(conns, req, nodes, min_conns)
+
+            # transfer data
+            self._transfer_data(req, data_source, conns, nodes)
+
+            # get responses
+            statuses, reasons, bodies, etags = self._get_put_responses(
+                req, conns, nodes)
+        except HTTPException as resp:
+            return resp
+        finally:
+            for conn in conns:
+                conn.close()
+
+        if len(etags) > 1:
+            self.app.logger.error(
+                _('Object servers returned %s mismatched etags'), len(etags))
+            return HTTPServerError(request=req)
+        etag = etags.pop() if len(etags) else None
+        resp = self.best_response(req, statuses, reasons, bodies,
+                                  _('Object PUT'), etag=etag)
+        resp.last_modified = math.ceil(
+            float(Timestamp(req.headers['X-Timestamp'])))
+        return resp
+
+    def _store_chunk(self, req, chunk, nodes, partition,
+                     outgoing_headers):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        # RFC2616:8.2.3 disallows 100-continue without a body
+        if (req.content_length > 0) or req.is_chunked:
+            expect = True
+        else:
+            expect = False
+        conns = self._get_put_connections(req, nodes, partition,
+                                          outgoing_headers, policy, expect)
+        min_conns = quorum_size(len(nodes))
+        try:
+            # check that a minimum number of connections were established and
+            # meet all the correct conditions set in the request
+            self._check_failure_put_connections(conns, req, nodes, min_conns)
+
+            # transfer data
+            # self._transfer_data(req, chunk, conns, nodes)
+            for conn in conns:
+                try:
+                    with ChunkWriteTimeout(self.app.node_timeout):
+                        conn.send(chunk)
+                except (Exception, ChunkWriteTimeout):
+                    self.app.exception_occurred(
+                        conn.node, _('Object'),
+                        _('Trying to write to %s') % req.path)
+
+            # get responses
+            statuses, reasons, bodies, etags = self._get_put_responses(
+                req, conns, nodes)
+        except HTTPException as resp:
+            return resp
+        finally:
+            for conn in conns:
+                conn.close()
+
+        if len(etags) > 1:
+            self.app.logger.error(
+                _('Object servers returned %s mismatched etags'), len(etags))
+            return HTTPServerError(request=req)
+        etag = etags.pop() if len(etags) else None
+        resp = self.best_response(req, statuses, reasons, bodies,
+                                  _('Object PUT'), etag=etag)
+        resp.last_modified = math.ceil(
+            float(Timestamp(req.headers['X-Timestamp'])))
+        return resp
+
+    def _dedupe_store_object_1b1(self, req, data_source,
+                             chunk_ring, object_name):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        container_nodes = container_info['nodes']
+        container_partition = container_info['partition']
+
+        #backup the length and path
+        obj_path = req.environ['PATH_INFO']
+        obj_len = req.headers['Content-length']
+        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        etag_hasher = md5()
+        fps = ''
+        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        while True:
+            try:
+                chunk = next(chunk_source)
+                etag_hasher.update(chunk) # update the checksum
+                hash = self.dedupe.hash(chunk)
+                fp = hash.hexdigest()
+                fps += fp
+                ret = self.dedupe.lookup(fp)
+                if ret:
+                    continue
+                self.dedupe.insert_fp_index(fp, '', object_name)
+                partition, nodes = chunk_ring.get_nodes(self.account_name, self.container_name, fp)
+                req.headers['Content-Length'] = str(len(chunk))
+                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
+                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+fp
+                 # check if object is set to be automatically deleted (i.e. expired)
+                req, delete_at_container, delete_at_part, \
+                    delete_at_nodes = self._config_obj_expiration(req)
+
+                # add special headers to be handled by storage nodes
+                outgoing_headers = self._backend_requests(
+                    req, len(nodes), container_partition, container_nodes,
+                    delete_at_container, delete_at_part, delete_at_nodes)
+
+                self._store_chunk(req, chunk, nodes, partition, outgoing_headers)
+            except StopIteration:
+                break
+
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        partition, nodes = chunk_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        #update the req
+        req.headers['Content-Length'] = str(len(fps))
+        req.environ['PATH_INFO'] = obj_path
+         # check if object is set to be automatically deleted (i.e. expired)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
+
+        # add special headers to be handled by storage nodes
+        outgoing_headers = self._backend_requests(
+            req, len(nodes), container_partition, container_nodes,
+            delete_at_container, delete_at_part, delete_at_nodes)
+
+        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
+        resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
+        return resp
+
+    def _dedupe_store_object(self, req, data_source,
+                             chunk_ring, object_name):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        container_nodes = container_info['nodes']
+        container_partition = container_info['partition']
+
+        #backup the length and path
+        obj_path = req.environ['PATH_INFO']
+        obj_len = req.headers['Content-length']
+        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        etag_hasher = md5()
+        fps = ''
+        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        while True:
+            try:
+                chunk = next(chunk_source)
+                etag_hasher.update(chunk) # update the checksum
+                hash = self.dedupe.hash(chunk)
+                fp = hash.hexdigest()
+                fps += fp
+                ret = self.dedupe.lookup(fp)
+                if ret:
+                    continue
+                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
+                self.dedupe.container.add(fp, chunk)
+                if not self.dedupe.container.is_full():
+                    continue
+                # the container is full, we send it to different locations
+                data = self.dedupe.container.tobyte()
+                partition, nodes = chunk_ring.get_nodes(self.account_name,
+                                                        self.container_name, self.dedupe.container.name)
+                req.headers['Content-Length'] = str(len(data))
+                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
+                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+ self.dedupe.container.name
+                 # check if object is set to be automatically deleted (i.e. expired)
+                req, delete_at_container, delete_at_part, \
+                    delete_at_nodes = self._config_obj_expiration(req)
+
+                # add special headers to be handled by storage nodes
+                outgoing_headers = self._backend_requests(
+                    req, len(nodes), container_partition, container_nodes,
+                    delete_at_container, delete_at_part, delete_at_nodes)
+
+                self._store_chunk(req, data, nodes, partition, outgoing_headers)
+
+                self.dedupe.container_count += 1
+                self.dedupe.container = dedupe_container(str(self.dedupe.container_count),
+                                                         self.dedupe.dedupe_container_size)
+
+                '''
+
+                policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+                policy = POLICIES.get_by_index(policy_index)
+                if not nodes:
+                    return HTTPNotFound()
+
+                # RFC2616:8.2.3 disallows 100-continue without a body
+                if (req.content_length > 0) or req.is_chunked:
+                    expect = True
+                else:
+                    expect = False
+
+                conns = self._get_put_connections(req, nodes, partition,
+                                          outgoing_headers, policy, expect)
+                min_conns = quorum_size(len(nodes))
+                try:
+                    # check that a minimum number of connections were established and
+                    # meet all the correct conditions set in the request
+                    self._check_failure_put_connections(conns, req, nodes, min_conns)
+
+                    # transfer data
+                    self._transfer_data(req, data_source, conns, nodes)
+
+                    # get responses
+                    statuses, reasons, bodies, etags = self._get_put_responses(
+                        req, conns, nodes)
+                except HTTPException as resp:
+                    return resp
+                finally:
+                    for conn in conns:
+                        conn.close()
+                '''
+
+            except StopIteration:
+                break
+
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        partition, nodes = chunk_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        #update the req
+        req.headers['Content-Length'] = str(len(fps))
+        req.environ['PATH_INFO'] = obj_path
+         # check if object is set to be automatically deleted (i.e. expired)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
+
+        # add special headers to be handled by storage nodes
+        outgoing_headers = self._backend_requests(
+            req, len(nodes), container_partition, container_nodes,
+            delete_at_container, delete_at_part, delete_at_nodes)
+
+        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
+        resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
+        return resp
+
+    @public
+    @cors_validation
+    @delay_denial
+    def PUT(self, req):
+        """HTTP PUT request handler."""
+        if req.if_none_match is not None and '*' not in req.if_none_match:
+            # Sending an etag with if-none-match isn't currently supported
+            return HTTPBadRequest(request=req, content_type='text/plain',
+                                  body='If-None-Match only supports *')
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        container_nodes = container_info['nodes']
+        container_partition = container_info['partition']
+        partition, nodes = obj_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+
+        # pass the policy index to storage nodes via req header
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        req.acl = container_info['write_acl']
+        req.environ['swift_sync_key'] = container_info['sync_key']
+
+        # is request authorized
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
+
+        if not container_info['nodes']:
+            return HTTPNotFound(request=req)
+
+        # update content type in case it is missing
+        self._update_content_type(req)
+
+        # check constraints on object name and request headers
+        error_response = check_object_creation(req, self.object_name) or \
+            check_content_type(req)
+        if error_response:
+            return error_response
+
+        self._update_x_timestamp(req)
+
+        # check if request is a COPY of an existing object
+        source_header = req.headers.get('X-Copy-From')
+        if source_header:
+            error_response, req, data_source, update_response = \
+                self._handle_copy_request(req)
+            if error_response:
+                return error_response
+        else:
+            reader = req.environ['wsgi.input'].read
+            data_source = iter(lambda: reader(self.app.client_chunk_size), '')
+            update_response = lambda req, resp: resp
+
+        # check if object is set to be automatically deleted (i.e. expired)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
+
+        # add special headers to be handled by storage nodes
+        outgoing_headers = self._backend_requests(
+            req, len(nodes), container_partition, container_nodes,
+            delete_at_container, delete_at_part, delete_at_nodes)
+
+        # send object to storage nodes
+        resp = self._dedupe_store_object(
+            req, data_source, obj_ring, self.object_name)
+        return update_response(req, resp)
+
+    @public
+    @cors_validation
+    @delay_denial
+    def GET(self, req):
+        """Handle HTTP GET or HEAD requests."""
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        req.acl = container_info['read_acl']
+        # pass the policy index to storage nodes via req header
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        policy = POLICIES.get_by_index(policy_index)
+        obj_ring = self.app.get_object_ring(policy_index)
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
+        partition = obj_ring.get_part(
+            self.account_name, self.container_name, self.object_name)
+        node_iter = self.app.iter_nodes(obj_ring, partition)
+
+        app_iter = RespBodyIter(req, self)
+        resp = app_iter.get_resp()
+        resp.app_iter = app_iter
+        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name)[0].strip()
+
+        if ';' in resp.headers.get('content-type', ''):
+            resp.content_type = clean_content_type(
+                resp.headers['content-type'])
         return resp
