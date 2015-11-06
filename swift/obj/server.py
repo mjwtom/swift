@@ -21,6 +21,7 @@ import os
 import multiprocessing
 import time
 import traceback
+import rfc822
 import socket
 import math
 from swift import gettext_ as _
@@ -31,18 +32,19 @@ from eventlet.greenthread import spawn
 
 # from swift.obj.dedupe.fp_index import Fp_Index
 
+# from swift.obj.dedupe.fp_index import Fp_Index
+
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
-    get_expirer_container, parse_mime_headers, \
-    iter_multipart_mime_documents
+    get_expirer_container, iter_multipart_mime_documents
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
-    ChunkReadError, DiskFileXattrNotSupported
+    DiskFileXattrNotSupported
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
@@ -62,7 +64,7 @@ def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
         wsgi_input, mime_boundary, read_chunk_size)
 
     for file_like in mime_documents_iter:
-        hdrs = parse_mime_headers(file_like)
+        hdrs = HeaderKeyDict(rfc822.Message(file_like, 0))
         yield (hdrs, file_like)
 
 
@@ -123,6 +125,9 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
+
+        # added by mjw I have moved it to proxy-server, which is better
+        # self.index = Fp_Index(conf.get('data_base'))
 
         # added by mjw I have moved it to proxy-server, which is better
         # self.index = Fp_Index(conf.get('data_base'))
@@ -410,10 +415,8 @@ class ObjectController(BaseStorageServer):
                 if commit_hdrs.get('X-Document', None) == "put commit":
                     rcvd_commit = True
             drain(commit_iter, self.network_chunk_size, self.client_timeout)
-        except ChunkReadError:
-            raise HTTPClientDisconnect()
         except ChunkReadTimeout:
-            raise HTTPRequestTimeout()
+            raise HTTPClientDisconnect()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
         return rcvd_commit
@@ -422,20 +425,16 @@ class ObjectController(BaseStorageServer):
         try:
             with ChunkReadTimeout(self.client_timeout):
                 footer_hdrs, footer_iter = next(mime_documents_iter)
-        except ChunkReadError:
-            raise HTTPClientDisconnect()
         except ChunkReadTimeout:
-            raise HTTPRequestTimeout()
+            raise HTTPClientDisconnect()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find footer MIME doc")
 
         timeout_reader = self._make_timeout_reader(footer_iter)
         try:
             footer_body = ''.join(iter(timeout_reader, ''))
-        except ChunkReadError:
-            raise HTTPClientDisconnect()
         except ChunkReadTimeout:
-            raise HTTPRequestTimeout()
+            raise HTTPClientDisconnect()
 
         footer_md5 = footer_hdrs.get('Content-MD5')
         if not footer_md5:
@@ -492,11 +491,7 @@ class ObjectController(BaseStorageServer):
         self._preserve_slo_manifest(metadata, orig_metadata)
         metadata.update(val for val in request.headers.items()
                         if is_user_meta('object', val[0]))
-        headers_to_copy = (
-            request.headers.get(
-                'X-Backend-Replication-Headers', '').split() +
-            list(self.allowed_headers))
-        for header_key in headers_to_copy:
+        for header_key in self.allowed_headers:
             if header_key in request.headers:
                 header_caps = header_key.title()
                 metadata[header_caps] = request.headers[header_key]
@@ -573,12 +568,10 @@ class ObjectController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
-            orig_timestamp = disk_file.data_timestamp
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
-            orig_timestamp = 0
 
         # Checks for If-None-Match
         if request.if_none_match is not None and orig_metadata:
@@ -589,6 +582,7 @@ class ObjectController(BaseStorageServer):
                 # The current ETag matches, so return 412
                 return HTTPPreconditionFailed(request=request)
 
+        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
         if orig_timestamp >= req_timestamp:
             return HTTPConflict(
                 request=request,
@@ -640,8 +634,6 @@ class ObjectController(BaseStorageServer):
                                 request.environ['wsgi.input'],
                                 mime_boundary, self.network_chunk_size)
                             _junk_hdrs, obj_input = next(mime_documents_iter)
-                    except ChunkReadError:
-                        return HTTPClientDisconnect(request=request)
                     except ChunkReadTimeout:
                         return HTTPRequestTimeout(request=request)
 
@@ -655,8 +647,6 @@ class ObjectController(BaseStorageServer):
                         etag.update(chunk)
                         upload_size = writer.write(chunk)
                         elapsed_time += time.time() - start_time
-                except ChunkReadError:
-                    return HTTPClientDisconnect(request=request)
                 except ChunkReadTimeout:
                     return HTTPRequestTimeout(request=request)
                 if upload_size:
@@ -717,10 +707,8 @@ class ObjectController(BaseStorageServer):
                             _junk_hdrs, _junk_body = next(mime_documents_iter)
                         drain(_junk_body, self.network_chunk_size,
                               self.client_timeout)
-                except ChunkReadError:
-                    raise HTTPClientDisconnect()
                 except ChunkReadTimeout:
-                    raise HTTPRequestTimeout()
+                    raise HTTPClientDisconnect()
                 except StopIteration:
                     pass
 
@@ -881,7 +869,7 @@ class ObjectController(BaseStorageServer):
             orig_metadata = {}
             response_class = HTTPNotFound
         else:
-            orig_timestamp = disk_file.data_timestamp
+            orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
             if orig_timestamp < req_timestamp:
                 response_class = HTTPNoContent
             else:
