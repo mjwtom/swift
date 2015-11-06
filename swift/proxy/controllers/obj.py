@@ -74,14 +74,6 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
 
-#mjw dedupe
-from swift.dedupe.chunk import chunkIter
-import os
-from swift.dedupe.DedupeResp import RespBodyIter
-from swift.dedupe.dedupe_container import dedupe_container
-from swift.common.storage_policy import DEDUPE_POLICY
-
-
 def copy_headers_into(from_r, to_r):
     """
     Will copy desired headers from from_r to to_r
@@ -147,7 +139,6 @@ class BaseObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-        # self.index = Fp_Index('/home/mjwtom/index.db') # mjw: need to be configurable
 
     def iter_nodes_local_first(self, ring, partition):
         """
@@ -218,30 +209,8 @@ class BaseObjectController(Controller):
     @cors_validation
     @delay_denial
     def GET(self, req):
-        """Handler for HTTP GET requests for deduplication."""
-        # return self.GETorHEAD(req)
-        """Handle HTTP GET or HEAD requests."""
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        req.acl = container_info['read_acl']
-        # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
-        partition = obj_ring.get_part(
-            self.account_name, self.container_name, self.object_name)
-        resp = Response(request=req)
-        resp.app_iter = RespBodyIter(self.app, req, obj_ring, self.account_name, self.container_name, self.object_name)
-
-        if ';' in resp.headers.get('content-type', ''):
-            resp.content_type = clean_content_type(
-                resp.headers['content-type'])
-        return resp
+        """Handler for HTTP GET requests."""
+        return self.GETorHEAD(req)
 
     @public
     @cors_validation
