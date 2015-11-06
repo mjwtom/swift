@@ -54,11 +54,11 @@ class RespBodyIter(object):
             return dedupe.container.kv[fingerprint]
 
         self.req.environ['PATH_INFO'] = os.path.dirname(self.req_environ_path)
-        self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + fingerprint
+        self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + str(container_id)
 
         container = dedupe_container(container_id)
 
-        self.controller.object_name = fingerprint
+        self.controller.object_name = container_id
         resp = self.controller.GETorHEAD(self.req)
         container.frombyte(resp.body)
         return container.kv[fingerprint]
