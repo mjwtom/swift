@@ -73,14 +73,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
-#mjw:import dedupe modules
-import copy
-from swift.dedupe.chunk import chunkIter
-from swift.dedupe.DedupeResp import RespBodyIter
-from swift.dedupe.fp_index import Fp_Index
-from hashlib import md5
-from swift.common.swob import Request, Response
-
 
 #mjw dedupe
 from swift.dedupe.chunk import chunkIter
