@@ -48,7 +48,7 @@ class RespBodyIter(object):
             fingerprint = self.fingerprints[self.fp_cur*self.fp_size:self.fp_cur*self.fp_size+self.fp_size]
             self.fp_cur += 1
         dedupe = self.controller.dedupe
-        container_id = dedupe.lookup()
+        container_id = dedupe.lookup(fingerprint)
 
         if container_id == str(dedupe.container_count):
             return dedupe.container.kv[fingerprint]
