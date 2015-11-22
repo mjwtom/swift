@@ -5,7 +5,6 @@ Created on Jan 4, 2015
 '''
 
 from rabin_karp import Rabin_Karp
-from docutils.nodes import target
 from swift.common.exceptions import ChunkReadTimeout
 
 
@@ -33,11 +32,11 @@ class chunkIter(object):
         return self
 
     def get_fixed(self):
-        if(len(self.buf) < self.target):
+        if len(self.buf) < self.target:
             try:
                 self.buf=self.buf+next(self.data_src)
             except StopIteration:
-                if(len(self.buf) > 0):
+                if len(self.buf) > 0:
                     buf = self.buf
                     self.buf = self.buf[len(self.buf):]
                     return buf
@@ -53,11 +52,11 @@ class chunkIter(object):
         method to return a chunk each call
         '''
         # if the data size in the buffer is below the minimum chunk size, try to read data from data size
-        if (len(self.buf) < self.min):
+        while len(self.buf) < self.min:
             try:
                 self.buf = self.buf + next(self.data_src)
             except StopIteration:
-                if (len(self.buf) > 0):
+                if len(self.buf) > 0:
                     buf = self.buf
                     self.buf = self.buf[len(self.buf):]
                     return buf
@@ -67,40 +66,35 @@ class chunkIter(object):
 
         size = len(self.buf)
         parsed = 0
-
-        #if the remained data size below the minimum chunk size, return this data as a data chunk
-        if (size < self.min):
-            return self.buf
-        else:
-            rabin = Rabin_Karp(self.buf[self.min - self.win_size:])
-            parsed = self.min
+        rabin = Rabin_Karp(self.buf[self.min - self.win_size:])
+        parsed = self.min
 
         while True:
             if self.MAGIC == (rabin.digest() % self.target):
-                buf = self.buf
-                self.buf = buf[parsed:]
-                return buf[:parsed]
+                buf = self.buf[:parsed]
+                self.buf = self.buf[parsed:]
+                return buf
 
             # if the buffer is exhausted, read data to the buffer
-            if (parsed >= size):
+            if parsed >= size:
                 try:
                     buf = next(self.data_src)
                     self.buf = self.buf + buf
                     rabin.str = rabin.str + buf
                     size = len(self.buf)
                 except StopIteration:
-                    if (len(self.buf) > 0):
+                    if len(self.buf) > 0:
                         buf = self.buf
-                        self.buf = buf[parsed:]
+                        self.buf = self.buf[parsed:]
                         return buf
                     raise StopIteration
                 except ChunkReadTimeout:
                     raise ChunkReadTimeout
             # reach the maximum chunk size, return this chunk
-            if (self.max <= parsed):
-                buf = self.buf
-                self.buf = buf[parsed:]
-                return buf[:parsed]
+            if self.max <= parsed:
+                buf = self.buf[:parsed]
+                self.buf = self.buf[parsed:]
+                return buf
             rabin.update()
             parsed += 1
 
