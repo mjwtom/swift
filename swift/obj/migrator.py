@@ -47,9 +47,9 @@ hubs.use_hub(get_hub())
 
 class ObjectMigrator(Daemon):
     """
-    Replicate objects.
+    Migrate objects.
 
-    Encapsulates most logic and data needed by the object replication process.
+    Encapsulates most logic and data needed by the object migration process.
     Each call to .replicate() performs one replication pass.  It's up to the
     caller to do this in a loop.
     """
@@ -60,7 +60,7 @@ class ObjectMigrator(Daemon):
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = logger or get_logger(conf, log_route='object-replicator')
+        self.logger = logger or get_logger(conf, log_route='object-migrator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -72,7 +72,6 @@ class ObjectMigrator(Daemon):
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
-        self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
@@ -83,13 +82,13 @@ class ObjectMigrator(Daemon):
             conf.get('rsync_compress', 'no'))
         self.rsync_module = conf.get('rsync_module', '').rstrip('/')
         if not self.rsync_module:
-            self.rsync_module = '{replication_ip}::object'
+            self.rsync_module = '{migration_ip}::object'
             if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warn('Option object-replicator/vm_test_mode is '
+                self.logger.warn('Option object-migrator/vm_test_mode is '
                                  'deprecated and will be removed in a future '
                                  'version. Update your configuration to use '
                                  'option object-replicator/rsync_module.')
-                self.rsync_module += '{replication_port}'
+                self.rsync_module += '{migration_port}'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -101,24 +100,15 @@ class ObjectMigrator(Daemon):
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.default_headers = {
             'Content-Length': '0',
-            'user-agent': 'object-replicator %s' % os.getpid()}
+            'user-agent': 'object-migrator %s' % os.getpid()}
         self.rsync_error_log_line_length = \
             int(conf.get('rsync_error_log_line_length', 0))
-        self.handoffs_first = config_true_value(conf.get('handoffs_first',
-                                                         False))
-        self.handoff_delete = config_auto_int_value(
-            conf.get('handoff_delete', 'auto'), 0)
-        if any((self.handoff_delete, self.handoffs_first)):
-            self.logger.warn('Handoff only mode is not intended for normal '
-                             'operation, please disable handoffs_first and '
-                             'handoff_delete before the next '
-                             'normal rebalance')
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
 
     def _zero_stats(self):
         """Zero out the stats."""
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0,
-                      'hashmatch': 0, 'rsync': 0, 'remove': 0,
+                      'hashmatch': 0, 'rsync': 0,
                       'start': time.time(), 'failure_nodes': {}}
 
     def _add_failure_stats(self, failure_devs_info):
@@ -555,7 +545,7 @@ class ObjectMigrator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
-    def build_replication_jobs(self, policy, ips, override_devices=None,
+    def build_migration_jobs(self, policy, ips, override_devices=None,
                                override_partitions=None):
         """
         Helper function for collect_jobs to build jobs for replication
@@ -563,15 +553,15 @@ class ObjectMigrator(Daemon):
         """
         jobs = []
         self.all_devs_info.update(
-            [(dev['replication_ip'], dev['device'])
+            [(dev['migration_ip'], dev['device'])
              for dev in policy.object_ring.devs if dev])
         data_dir = get_data_dir(policy)
         for local_dev in [dev for dev in policy.object_ring.devs
                           if (dev
                               and is_local_device(ips,
                                                   self.port,
-                                                  dev['replication_ip'],
-                                                  dev['replication_port'])
+                                                  dev['migration_ip'],
+                                                  dev['migration_port'])
                               and (override_devices is None
                                    or dev['device'] in override_devices))]:
             dev_path = join(self.devices_dir, local_dev['device'])
@@ -579,7 +569,7 @@ class ObjectMigrator(Daemon):
             tmp_path = join(dev_path, get_tmp_dir(policy))
             if self.mount_check and not ismount(dev_path):
                 self._add_failure_stats(
-                    [(failure_dev['replication_ip'],
+                    [(failure_dev['migration_ip'],
                       failure_dev['device'])
                      for failure_dev in policy.object_ring.devs
                      if failure_dev])
@@ -632,7 +622,7 @@ class ObjectMigrator(Daemon):
                      override_policies=None):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
-        partitions, nodes, etc to be rsynced.
+        partitions, nodes, etc to be rsynced. (mjwtom: changed to return object)
 
         :param override_devices: if set, only jobs on these devices
             will be returned
@@ -650,7 +640,7 @@ class ObjectMigrator(Daemon):
                     continue
                 # ensure rings are loaded for policy
                 self.load_object_ring(policy)
-                jobs += self.build_replication_jobs(
+                jobs += self.build_migration_jobs(
                     policy, ips, override_devices=override_devices,
                     override_partitions=override_partitions)
         random.shuffle(jobs)
@@ -660,9 +650,9 @@ class ObjectMigrator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self, override_devices=None, override_partitions=None,
+    def migrate(self, override_devices=None, override_partitions=None,
                   override_policies=None):
-        """Run a replication pass"""
+        """Run a migration pass"""
         self.start = time.time()
         self.suffix_count = 0
         self.suffix_sync = 0
@@ -736,7 +726,7 @@ class ObjectMigrator(Daemon):
 
     def run_once(self, *args, **kwargs):
         self._zero_stats()
-        self.logger.info(_("Running object replicator in script mode."))
+        self.logger.info(_("Running object migration in script mode."))
 
         override_devices = list_from_csv(kwargs.get('devices'))
         override_partitions = list_from_csv(kwargs.get('partitions'))
@@ -748,40 +738,40 @@ class ObjectMigrator(Daemon):
         if not override_policies:
             override_policies = None
 
-        self.replicate(
+        self.migrate(
             override_devices=override_devices,
             override_partitions=override_partitions,
             override_policies=override_policies)
         total = (time.time() - self.stats['start']) / 60
         self.logger.info(
-            _("Object replication complete (once). (%.02f minutes)"), total)
+            _("Object migration complete (once). (%.02f minutes)"), total)
         if not (override_partitions or override_devices):
-            replication_last = time.time()
-            dump_recon_cache({'replication_stats': self.stats,
-                              'replication_time': total,
-                              'replication_last': replication_last,
-                              'object_replication_time': total,
-                              'object_replication_last': replication_last},
+            migration_last = time.time()
+            dump_recon_cache({'migration_stats': self.stats,
+                              'migration_time': total,
+                              'migration_last': migration_last,
+                              'object_migration_time': total,
+                              'object_migration_last': migration_last},
                              self.rcache, self.logger)
 
     def run_forever(self, *args, **kwargs):
-        self.logger.info(_("Starting object replicator in daemon mode."))
+        self.logger.info(_("Starting object migration in daemon mode."))
         # Run the replicator continually
         while True:
             self._zero_stats()
-            self.logger.info(_("Starting object replication pass."))
+            self.logger.info(_("Starting object migration pass."))
             # Run the replicator
-            self.replicate()
+            self.migrate()
             total = (time.time() - self.stats['start']) / 60
             self.logger.info(
-                _("Object replication complete. (%.02f minutes)"), total)
-            replication_last = time.time()
-            dump_recon_cache({'replication_stats': self.stats,
-                              'replication_time': total,
-                              'replication_last': replication_last,
-                              'object_replication_time': total,
-                              'object_replication_last': replication_last},
+                _("Object migration complete. (%.02f minutes)"), total)
+            migration_last = time.time()
+            dump_recon_cache({'migration_stats': self.stats,
+                              'migration_time': total,
+                              'migration_last': migration_last,
+                              'object_migration_time': total,
+                              'object_migration_last': migration_last},
                              self.rcache, self.logger)
-            self.logger.debug('Replication sleeping for %s seconds.',
+            self.logger.debug('Migration sleeping for %s seconds.',
                               self.interval)
             sleep(self.interval)

@@ -21,14 +21,8 @@ from optparse import OptionParser
 
 if __name__ == '__main__':
     parser = OptionParser("%prog CONFIG [options]")
-    parser.add_option('-d', '--devices',
-                      help='Replicate only given devices. '
-                           'Comma-separated list')
-    parser.add_option('-p', '--partitions',
-                      help='Replicate only given partitions. '
-                           'Comma-separated list')
-    parser.add_option('-i', '--policies',
-                      help='Replicate only given policy indices. '
+    parser.add_option('-o', '--object',
+                      help='Migrate only given object. '
                            'Comma-separated list')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectMigrator, conf_file, **options)
