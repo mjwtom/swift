@@ -39,7 +39,7 @@ from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
 from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
-from swift.common.storage_policy import POLICIES, REPL_POLICY
+from swift.common.storage_policy import POLICIES, DEDUPE_POLICY
 
 
 hubs.use_hub(get_hub())
@@ -82,13 +82,13 @@ class ObjectMigrator(Daemon):
             conf.get('rsync_compress', 'no'))
         self.rsync_module = conf.get('rsync_module', '').rstrip('/')
         if not self.rsync_module:
-            self.rsync_module = '{migration_ip}::object'
+            self.rsync_module = '{replication_ip}::object'
             if config_true_value(conf.get('vm_test_mode', 'no')):
                 self.logger.warn('Option object-migrator/vm_test_mode is '
                                  'deprecated and will be removed in a future '
                                  'version. Update your configuration to use '
                                  'option object-replicator/rsync_module.')
-                self.rsync_module += '{migration_port}'
+                self.rsync_module += '{replication_port}'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -111,12 +111,8 @@ class ObjectMigrator(Daemon):
                       'hashmatch': 0, 'rsync': 0,
                       'start': time.time(), 'failure_nodes': {}}
 
-    def _add_failure_stats(self, failure_devs_info):
-        for node, dev in failure_devs_info:
-            self.stats['failure'] += 1
-            failure_devs = self.stats['failure_nodes'].setdefault(node, {})
-            failure_devs.setdefault(dev, 0)
-            failure_devs[dev] += 1
+    def _add_failure_stats(self):
+        self.stats['failure'] += 1
 
     def _get_my_replication_ips(self):
         my_replication_ips = set()
@@ -240,145 +236,13 @@ class ObjectMigrator(Daemon):
         return ssync_sender.Sender(
             self, node, job, suffixes, remote_check_objs)()
 
-    def check_ring(self, object_ring):
-        """
-        Check to see if the ring has been updated
-        :param object_ring: the ring to check
-
-        :returns: boolean indicating whether or not the ring has changed
-        """
-        if time.time() > self.next_check:
-            self.next_check = time.time() + self.ring_check_interval
-            if object_ring.has_changed():
-                return False
-        return True
-
-    def update_deleted(self, job):
-        """
-        High-level method that replicates a single partition that doesn't
-        belong on this node.
-
-        :param job: a dict containing info about the partition to be replicated
-        """
-
-        def tpool_get_suffixes(path):
-            return [suff for suff in os.listdir(path)
-                    if len(suff) == 3 and isdir(join(path, suff))]
-        self.replication_count += 1
-        self.logger.increment('partition.delete.count.%s' % (job['device'],))
-        headers = dict(self.default_headers)
-        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-        failure_devs_info = set()
-        begin = time.time()
-        try:
-            responses = []
-            suffixes = tpool.execute(tpool_get_suffixes, job['path'])
-            synced_remote_regions = {}
-            delete_objs = None
-            if suffixes:
-                for node in job['nodes']:
-                    self.stats['rsync'] += 1
-                    kwargs = {}
-                    if node['region'] in synced_remote_regions and \
-                            self.conf.get('sync_method', 'rsync') == 'ssync':
-                        kwargs['remote_check_objs'] = \
-                            synced_remote_regions[node['region']]
-                    # candidates is a dict(hash=>timestamp) of objects
-                    # for deletion
-                    success, candidates = self.sync(
-                        node, job, suffixes, **kwargs)
-                    if success:
-                        with Timeout(self.http_timeout):
-                            conn = http_connect(
-                                node['replication_ip'],
-                                node['replication_port'],
-                                node['device'], job['partition'], 'REPLICATE',
-                                '/' + '-'.join(suffixes), headers=headers)
-                            conn.getresponse().read()
-                        if node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = viewkeys(
-                                candidates)
-                    else:
-                        failure_devs_info.add((node['replication_ip'],
-                                               node['device']))
-                    responses.append(success)
-                for region, cand_objs in synced_remote_regions.items():
-                    if delete_objs is None:
-                        delete_objs = cand_objs
-                    else:
-                        delete_objs = delete_objs & cand_objs
-
-            if self.handoff_delete:
-                # delete handoff if we have had handoff_delete successes
-                delete_handoff = len([resp for resp in responses if resp]) >= \
-                    self.handoff_delete
-            else:
-                # delete handoff if all syncs were successful
-                delete_handoff = len(responses) == len(job['nodes']) and \
-                    all(responses)
-            if delete_handoff:
-                self.stats['remove'] += 1
-                if (self.conf.get('sync_method', 'rsync') == 'ssync' and
-                        delete_objs is not None):
-                    self.logger.info(_("Removing %s objects"),
-                                     len(delete_objs))
-                    _junk, error_paths = self.delete_handoff_objs(
-                        job, delete_objs)
-                    # if replication works for a hand-off device and it failed,
-                    # the remote devices which are target of the replication
-                    # from the hand-off device will be marked. Because cleanup
-                    # after replication failed means replicator needs to
-                    # replicate again with the same info.
-                    if error_paths:
-                        failure_devs_info.update(
-                            [(failure_dev['replication_ip'],
-                              failure_dev['device'])
-                             for failure_dev in job['nodes']])
-                else:
-                    self.delete_partition(job['path'])
-            elif not suffixes:
-                self.delete_partition(job['path'])
-        except (Exception, Timeout):
-            self.logger.exception(_("Error syncing handoff partition"))
-        finally:
-            target_devs_info = set([(target_dev['replication_ip'],
-                                     target_dev['device'])
-                                    for target_dev in job['nodes']])
-            self.stats['success'] += len(target_devs_info - failure_devs_info)
-            self._add_failure_stats(failure_devs_info)
-            self.partition_times.append(time.time() - begin)
-            self.logger.timing_since('partition.delete.timing', begin)
-
-    def delete_partition(self, path):
-        self.logger.info(_("Removing partition: %s"), path)
-        tpool.execute(shutil.rmtree, path)
-
-    def delete_handoff_objs(self, job, delete_objs):
-        success_paths = []
-        error_paths = []
-        for object_hash in delete_objs:
-            object_path = storage_directory(job['obj_path'], job['partition'],
-                                            object_hash)
-            tpool.execute(shutil.rmtree, object_path, ignore_errors=True)
-            suffix_dir = dirname(object_path)
-            try:
-                os.rmdir(suffix_dir)
-                success_paths.append(object_path)
-            except OSError as e:
-                if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                    error_paths.append(object_path)
-                    self.logger.exception(
-                        "Unexpected error trying to cleanup suffix dir:%r",
-                        suffix_dir)
-        return success_paths, error_paths
-
-    def update(self, job):
+    def _migrate(self, job):
         """
         High-level method that replicates a single partition.
 
         :param job: a dict containing info about the partition to be replicated
         """
-        self.replication_count += 1
+        self.migration_count += 1
         self.logger.increment('partition.update.count.%s' % (job['device'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
@@ -386,89 +250,50 @@ class ObjectMigrator(Daemon):
         failure_devs_info = set()
         begin = time.time()
         try:
-            hashed, local_hash = tpool_reraise(
-                self._diskfile_mgr._get_hashes, job['path'],
-                do_listdir=(self.replication_count % 10) == 0,
-                reclaim_age=self.reclaim_age)
+            hashed = self.suffix_hash
             self.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
-            attempts_left = len(job['nodes'])
-            synced_remote_regions = set()
-            random.shuffle(job['nodes'])
-            nodes = itertools.chain(
-                job['nodes'],
-                job['policy'].object_ring.get_more_nodes(
-                    int(job['partition'])))
-            while attempts_left > 0:
-                # If this throws StopIteration it will be caught way below
-                node = next(nodes)
-                target_devs_info.add((node['replication_ip'], node['device']))
-                attempts_left -= 1
-                # if we have already synced to this remote region,
-                # don't sync again on this replication pass
-                if node['region'] in synced_remote_regions:
-                    continue
-                try:
-                    with Timeout(self.http_timeout):
-                        resp = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '', headers=headers).getresponse()
-                        if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error(_('%(ip)s/%(device)s responded'
-                                                ' as unmounted'), node)
-                            attempts_left += 1
-                            failure_devs_info.add((node['replication_ip'],
-                                                   node['device']))
-                            continue
-                        if resp.status != HTTP_OK:
-                            self.logger.error(_("Invalid response %(resp)s "
-                                                "from %(ip)s"),
-                                              {'resp': resp.status,
-                                               'ip': node['replication_ip']})
-                            failure_devs_info.add((node['replication_ip'],
-                                                   node['device']))
-                            continue
-                        remote_hash = pickle.loads(resp.read())
-                        del resp
-                    suffixes = [suffix for suffix in local_hash if
-                                local_hash[suffix] !=
-                                remote_hash.get(suffix, -1)]
-                    if not suffixes:
-                        self.stats['hashmatch'] += 1
-                        continue
-                    hashed, recalc_hash = tpool_reraise(
-                        self._diskfile_mgr._get_hashes,
-                        job['path'], recalculate=suffixes,
-                        reclaim_age=self.reclaim_age)
-                    self.logger.update_stats('suffix.hashes', hashed)
-                    local_hash = recalc_hash
-                    suffixes = [suffix for suffix in local_hash if
-                                local_hash[suffix] !=
-                                remote_hash.get(suffix, -1)]
-                    self.stats['rsync'] += 1
-                    success, _junk = self.sync(node, job, suffixes)
-                    with Timeout(self.http_timeout):
-                        conn = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '/' + '-'.join(suffixes),
-                            headers=headers)
-                        conn.getresponse().read()
-                    if not success:
+            node = job['node']
+            target_devs_info.add((node['replication_ip'], node['device']))
+            try:
+                with Timeout(self.http_timeout):
+                    resp = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '', headers=headers).getresponse()
+                    if resp.status == HTTP_INSUFFICIENT_STORAGE:
+                        self.logger.error(_('%(ip)s/%(device)s responded'
+                                            ' as unmounted'), node)
                         failure_devs_info.add((node['replication_ip'],
                                                node['device']))
-                    # add only remote region when replicate succeeded
-                    if success and node['region'] != job['region']:
-                        synced_remote_regions.add(node['region'])
-                    self.suffix_sync += len(suffixes)
-                    self.logger.update_stats('suffix.syncs', len(suffixes))
-                except (Exception, Timeout):
+                    if resp.status != HTTP_OK:
+                        self.logger.error(_("Invalid response %(resp)s "
+                                            "from %(ip)s"),
+                                          {'resp': resp.status,
+                                           'ip': node['replication_ip']})
+                        failure_devs_info.add((node['replication_ip'],
+                                               node['device']))
+                    remote_hash = pickle.loads(resp.read())
+                    del resp
+                self.stats['rsync'] += 1
+                success, _junk = self.sync(node, job, suffixes)
+                with Timeout(self.http_timeout):
+                    conn = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '/' + '-'.join(suffixes),
+                        headers=headers)
+                    conn.getresponse().read()
+                if not success:
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
-                    self.logger.exception(_("Error syncing with node: %s") %
-                                          node)
-            self.suffix_count += len(local_hash)
+                self.suffix_sync += len(suffixes)
+                self.logger.update_stats('suffix.syncs', len(suffixes))
+            except (Exception, Timeout):
+                failure_devs_info.add((node['replication_ip'],
+                                       node['device']))
+                self.logger.exception(_("Error syncing with node: %s") %
+                                      node)
         except (Exception, Timeout):
             failure_devs_info.update(target_devs_info)
             self.logger.exception(_("Error syncing partition"))
@@ -482,18 +307,18 @@ class ObjectMigrator(Daemon):
         """
         Logs various stats for the currently running replication pass.
         """
-        if self.replication_count:
+        if self.migration_count:
             elapsed = (time.time() - self.start) or 0.000001
-            rate = self.replication_count / elapsed
+            rate = self.migration_count / elapsed
             self.logger.info(
                 _("%(replicated)d/%(total)d (%(percentage).2f%%)"
                   " partitions replicated in %(time).2fs (%(rate).2f/sec, "
                   "%(remaining)s remaining)"),
-                {'replicated': self.replication_count, 'total': self.job_count,
-                 'percentage': self.replication_count * 100.0 / self.job_count,
+                {'replicated': self.migration_count, 'total': self.job_count,
+                 'percentage': self.migration_count * 100.0 / self.job_count,
                  'time': time.time() - self.start, 'rate': rate,
                  'remaining': '%d%s' % compute_eta(self.start,
-                                                   self.replication_count,
+                                                   self.migration_count,
                                                    self.job_count)})
             if self.suffix_count:
                 self.logger.info(
@@ -545,81 +370,35 @@ class ObjectMigrator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
-    def build_migration_jobs(self, policy, ips, override_devices=None,
-                               override_partitions=None):
+    def build_migration_jobs(self, policy, src_dev, dst_dev):
         """
         Helper function for collect_jobs to build jobs for replication
         using replication style storage policy
         """
         jobs = []
-        self.all_devs_info.update(
-            [(dev['migration_ip'], dev['device'])
-             for dev in policy.object_ring.devs if dev])
         data_dir = get_data_dir(policy)
-        for local_dev in [dev for dev in policy.object_ring.devs
-                          if (dev
-                              and is_local_device(ips,
-                                                  self.port,
-                                                  dev['migration_ip'],
-                                                  dev['migration_port'])
-                              and (override_devices is None
-                                   or dev['device'] in override_devices))]:
-            dev_path = join(self.devices_dir, local_dev['device'])
-            obj_path = join(dev_path, data_dir)
-            tmp_path = join(dev_path, get_tmp_dir(policy))
-            if self.mount_check and not ismount(dev_path):
-                self._add_failure_stats(
-                    [(failure_dev['migration_ip'],
-                      failure_dev['device'])
-                     for failure_dev in policy.object_ring.devs
-                     if failure_dev])
-                self.logger.warn(_('%s is not mounted'), local_dev['device'])
-                continue
-            unlink_older_than(tmp_path, time.time() - self.reclaim_age)
-            if not os.path.exists(obj_path):
-                try:
-                    mkdirs(obj_path)
-                except Exception:
-                    self.logger.exception('ERROR creating %s' % obj_path)
-                continue
-            for partition in os.listdir(obj_path):
-                if (override_partitions is not None
-                        and partition not in override_partitions):
-                    continue
+        dev_path = join(self.devices_dir, src_dev['device'])
+        obj_path = join(dev_path, data_dir)
+        tmp_path = join(dev_path, get_tmp_dir(policy))
 
-                part_nodes = None
-                try:
-                    job_path = join(obj_path, partition)
-                    part_nodes = policy.object_ring.get_part_nodes(
-                        int(partition))
-                    nodes = [node for node in part_nodes
-                             if node['id'] != local_dev['id']]
-                    jobs.append(
-                        dict(path=job_path,
-                             device=local_dev['device'],
-                             obj_path=obj_path,
-                             nodes=nodes,
-                             delete=len(nodes) > len(part_nodes) - 1,
-                             policy=policy,
-                             partition=partition,
-                             region=local_dev['region']))
-                except ValueError:
-                    if part_nodes:
-                        self._add_failure_stats(
-                            [(failure_dev['replication_ip'],
-                              failure_dev['device'])
-                             for failure_dev in nodes])
-                    else:
-                        self._add_failure_stats(
-                            [(failure_dev['replication_ip'],
-                              failure_dev['device'])
-                             for failure_dev in policy.object_ring.devs
-                             if failure_dev])
-                    continue
+        if self.mount_check and not ismount(dev_path):
+            self._add_failure_stats()
+        try:
+            job_path = join(obj_path, 'abc') #job_path = join(obj_path, partition)
+            nodes = policy.object_ring.get_part_nodes(int('abc'))
+            jobs.append(
+                dict(path=job_path,
+                     device=src_dev['device'],
+                     obj_path=obj_path,
+                     nodes=nodes,
+                     policy=policy,
+                     partition='abc',
+                     region=src_dev['region']))
+        except ValueError:
+                self._add_failure_stats()
         return jobs
 
-    def collect_jobs(self, override_devices=None, override_partitions=None,
-                     override_policies=None):
+    def collect_jobs(self, src_dev, dst_dev):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
         partitions, nodes, etc to be rsynced. (mjwtom: changed to return object)
@@ -631,35 +410,24 @@ class ObjectMigrator(Daemon):
         :param override_policies: if set, only jobs in these storage
             policies will be returned
         """
+        for policy in POLICIES:
+            if policy.policy_type == DEDUPE_POLICY:
+                self.load_object_ring(policy)
+                break
         jobs = []
         ips = whataremyips(self.bind_ip)
-        for policy in POLICIES:
-            if policy.policy_type == REPL_POLICY:
-                if (override_policies is not None and
-                        str(policy.idx) not in override_policies):
-                    continue
-                # ensure rings are loaded for policy
-                self.load_object_ring(policy)
-                jobs += self.build_migration_jobs(
-                    policy, ips, override_devices=override_devices,
-                    override_partitions=override_partitions)
+        jobs += self.build_migration_jobs(policy, src_dev, dst_dev)
         random.shuffle(jobs)
-        if self.handoffs_first:
-            # Move the handoff parts to the front of the list
-            jobs.sort(key=lambda job: not job['delete'])
         self.job_count = len(jobs)
         return jobs
 
-    def migrate(self, override_devices=None, override_partitions=None,
-                  override_policies=None):
+    def migrate(self, src_dev, dst_dev):
         """Run a migration pass"""
         self.start = time.time()
         self.suffix_count = 0
         self.suffix_sync = 0
         self.suffix_hash = 0
-        self.replication_count = 0
-        self.last_replication_count = -1
-        self.partition_times = []
+        self.migration_count = 0
         self.my_replication_ips = self._get_my_replication_ips()
         self.all_devs_info = set()
 
@@ -670,21 +438,11 @@ class ObjectMigrator(Daemon):
         current_nodes = None
         try:
             self.run_pool = GreenPool(size=self.concurrency)
-            jobs = self.collect_jobs(override_devices=override_devices,
-                                     override_partitions=override_partitions,
-                                     override_policies=override_policies)
+            jobs = self.collect_jobs()
             for job in jobs:
-                current_nodes = job['nodes']
-                if override_devices and job['device'] not in override_devices:
-                    continue
-                if override_partitions and \
-                        job['partition'] not in override_partitions:
-                    continue
                 dev_path = join(self.devices_dir, job['device'])
                 if self.mount_check and not ismount(dev_path):
-                    self._add_failure_stats([(failure_dev['replication_ip'],
-                                              failure_dev['device'])
-                                             for failure_dev in job['nodes']])
+                    self._add_failure_stats()
                     self.logger.warn(_('%s is not mounted'), job['device'])
                     continue
                 if not self.check_ring(job['policy'].object_ring):
@@ -702,50 +460,38 @@ class ObjectMigrator(Daemon):
                         continue
                 except OSError:
                     continue
-                if job['delete']:
-                    self.run_pool.spawn(self.update_deleted, job)
-                else:
-                    self.run_pool.spawn(self.update, job)
-            current_nodes = None
+                self.run_pool.spawn(self._migrate, job)
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
             if current_nodes:
-                self._add_failure_stats([(failure_dev['replication_ip'],
-                                          failure_dev['device'])
-                                         for failure_dev in current_nodes])
+                self._add_failure_stats()
             else:
-                self._add_failure_stats(self.all_devs_info)
+                self._add_failure_stats()
             self.logger.exception(_("Exception in top-level replication loop"))
             self.kill_coros()
         finally:
             stats.kill()
             lockup_detector.kill()
             self.stats_line()
-            self.stats['attempted'] = self.replication_count
+            self.stats['attempted'] = self.migration_count
 
     def run_once(self, *args, **kwargs):
         self._zero_stats()
         self.logger.info(_("Running object migration in script mode."))
 
-        override_devices = list_from_csv(kwargs.get('devices'))
-        override_partitions = list_from_csv(kwargs.get('partitions'))
-        override_policies = list_from_csv(kwargs.get('policies'))
-        if not override_devices:
-            override_devices = None
-        if not override_partitions:
-            override_partitions = None
-        if not override_policies:
-            override_policies = None
-
-        self.migrate(
-            override_devices=override_devices,
-            override_partitions=override_partitions,
-            override_policies=override_policies)
+        self.deamon = False
+        dev = list_from_csv(kwargs.get('dev'))
+        account_name = list_from_csv(kwargs.get('account'))
+        container_name = list_from_csv(kwargs.get('container'))
+        object_name = list_from_csv(kwargs.get('object'))
+        policy_idx = list_from_csv(kwargs.get('policy'))
+        # Run the migrator
+        self.migrate()
         total = (time.time() - self.stats['start']) / 60
         self.logger.info(
             _("Object migration complete (once). (%.02f minutes)"), total)
-        if not (override_partitions or override_devices):
+        if not dev:
             migration_last = time.time()
             dump_recon_cache({'migration_stats': self.stats,
                               'migration_time': total,
@@ -760,7 +506,7 @@ class ObjectMigrator(Daemon):
         while True:
             self._zero_stats()
             self.logger.info(_("Starting object migration pass."))
-            # Run the replicator
+            # Run the migrator
             self.migrate()
             total = (time.time() - self.stats['start']) / 60
             self.logger.info(

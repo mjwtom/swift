@@ -122,12 +122,6 @@ class ObjectController(BaseStorageServer):
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
 
-        # added by mjw I have moved it to proxy-server, which is better
-        # self.index = Fp_Index(conf.get('data_base'))
-
-        # added by mjw I have moved it to proxy-server, which is better
-        # self.index = Fp_Index(conf.get('data_base'))
-
         default_allowed_headers = '''
             content-disposition,
             content-encoding,
@@ -512,21 +506,6 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
-        '''
-        mjw:
-        TODO: from the name of the object, check if the obj exists or not
-        I have move this to proxy-server, which seems better
-        '''
-        '''
-        ret = self.index.lookup(obj)
-        if ret:
-            return HTTPConflict(
-                request=request)
-        self.index.insert(obj, '10000') # the value is not right
-        '''
-        '''
-        mjw: end the check
-        '''
         req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
         if error_response:
@@ -914,6 +893,30 @@ class ObjectController(BaseStorageServer):
     def REPLICATE(self, request):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
+        by the object replicator to get hashes for directories.
+
+        Note that the name REPLICATE is preserved for historical reasons as
+        this verb really just returns the hashes information for the specified
+        parameters and is used, for example, by both replication and EC.
+        """
+        device, partition, suffix_parts, policy = \
+            get_name_and_placement(request, 2, 3, True)
+        suffixes = suffix_parts.split('-') if suffix_parts else []
+        try:
+            hashes = self._diskfile_router[policy].get_hashes(
+                device, partition, suffixes, policy)
+        except DiskFileDeviceUnavailable:
+            resp = HTTPInsufficientStorage(drive=device, request=request)
+        else:
+            resp = Response(body=pickle.dumps(hashes))
+        return resp
+
+    @public
+    @replication
+    @timing_stats(sample_rate=0.1)
+    def MIGRATE(self, request):
+        """
+        Handle MIGRATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
 
         Note that the name REPLICATE is preserved for historical reasons as
