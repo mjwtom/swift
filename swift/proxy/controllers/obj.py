@@ -2891,8 +2891,9 @@ class DeduplicationObjectController(BaseObjectController):
                 partition, nodes = chunk_ring.get_nodes(self.account_name,
                                                         self.container_name, self.dedupe.container.name)
                 req.headers['Content-Length'] = str(len(data))
-                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
-                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+ self.dedupe.container.name
+                l = len(self.object_name)
+                tmp_pth = obj_path[:-l]
+                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.name
                  # check if object is set to be automatically deleted (i.e. expired)
                 req, delete_at_container, delete_at_part, \
                     delete_at_nodes = self._config_obj_expiration(req)

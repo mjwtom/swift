@@ -13,6 +13,7 @@ from swift.dedupe.dedupe_container import dedupe_container
 class RespBodyIter(object):
     def __init__(self, req, controller):
         self.controller = controller
+        self.object_name = controller.object_name
         self.req = req
         self.resp = controller.GETorHEAD(req)
         self.fingerprints = self.resp.body
@@ -53,8 +54,9 @@ class RespBodyIter(object):
         if container_id == str(dedupe.container_count):
             return dedupe.container.kv[fingerprint]
 
-        self.req.environ['PATH_INFO'] = os.path.dirname(self.req_environ_path)
-        self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + str(container_id)
+        l = len(self.object_name)
+        tmp_pth = self.req_environ_path[:-l]
+        self.req.environ['PATH_INFO'] = tmp_pth+ str(container_id)
 
         container = dedupe_container(container_id)
 

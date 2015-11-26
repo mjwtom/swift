@@ -21,8 +21,20 @@ from optparse import OptionParser
 
 if __name__ == '__main__':
     parser = OptionParser("%prog CONFIG [options]")
-    parser.add_option('-o', '--object',
-                      help='Migrate only given object. '
+    parser.add_option('-p', '--policy',
+                      help='Migrate only given policy. '
+                           'Comma-separated list')
+    parser.add_option('-d', '--device',
+                      help='Migrate only object to given device. '
+                           'Comma-separated list')
+    parser.add_option('-a', '--account',
+                      help='Migrate object under this account. '
+                           'Comma-separated list')
+    parser.add_option('-c', '--container',
+                      help='Migrate under this container. '
+                           'Comma-separated list')
+    parser.add_option('-b', '--object',
+                      help='Migrate this object. '
                            'Comma-separated list')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectMigrator, conf_file, **options)

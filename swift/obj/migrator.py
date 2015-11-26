@@ -41,6 +41,8 @@ from swift.obj import ssync_sender
 from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
 from swift.common.storage_policy import POLICIES, DEDUPE_POLICY
 
+from swift.common.utils import hash_path
+
 
 hubs.use_hub(get_hub())
 
@@ -238,70 +240,59 @@ class ObjectMigrator(Daemon):
 
     def _migrate(self, job):
         """
-        High-level method that replicates a single partition.
+        High-level method that replicates a single partition that doesn't
+        belong on this node.
 
         :param job: a dict containing info about the partition to be replicated
         """
+
         self.migration_count += 1
-        self.logger.increment('partition.update.count.%s' % (job['device'],))
+        self.logger.increment('partition.delete.count.%s' % (job['device'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-        target_devs_info = set()
         failure_devs_info = set()
         begin = time.time()
         try:
-            hashed = self.suffix_hash
-            self.suffix_hash += hashed
-            self.logger.update_stats('suffix.hashes', hashed)
-            node = job['node']
-            target_devs_info.add((node['replication_ip'], node['device']))
-            try:
-                with Timeout(self.http_timeout):
-                    resp = http_connect(
-                        node['replication_ip'], node['replication_port'],
-                        node['device'], job['partition'], 'REPLICATE',
-                        '', headers=headers).getresponse()
-                    if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.logger.error(_('%(ip)s/%(device)s responded'
-                                            ' as unmounted'), node)
-                        failure_devs_info.add((node['replication_ip'],
-                                               node['device']))
-                    if resp.status != HTTP_OK:
-                        self.logger.error(_("Invalid response %(resp)s "
-                                            "from %(ip)s"),
-                                          {'resp': resp.status,
-                                           'ip': node['replication_ip']})
-                        failure_devs_info.add((node['replication_ip'],
-                                               node['device']))
-                    remote_hash = pickle.loads(resp.read())
-                    del resp
+            responses = []
+            synced_remote_regions = {}
+            delete_objs = None
+            for node in job['nodes']:
                 self.stats['rsync'] += 1
-                success, _junk = self.sync(node, job, suffixes)
-                with Timeout(self.http_timeout):
-                    conn = http_connect(
-                        node['replication_ip'], node['replication_port'],
-                        node['device'], job['partition'], 'REPLICATE',
-                        '/' + '-'.join(suffixes),
-                        headers=headers)
-                    conn.getresponse().read()
-                if not success:
+                kwargs = {}
+                if node['region'] in synced_remote_regions and \
+                        self.conf.get('sync_method', 'rsync') == 'ssync':
+                    kwargs['remote_check_objs'] = \
+                        synced_remote_regions[node['region']]
+                # candidates is a dict(hash=>timestamp) of objects
+                # for deletion
+                success, candidates = self.sync(
+                    node, job, job['path'], **kwargs)
+                if success:
+                    with Timeout(self.http_timeout):
+                        conn = http_connect(
+                            node['replication_ip'],
+                            node['replication_port'],
+                            node['device'], job['partition'], 'REPLICATE',
+                            '/', headers=headers) #'/' + '-'.join(suffixes), headers=headers)
+                        conn.getresponse().read()
+                    if node['region'] != job['region']:
+                        synced_remote_regions[node['region']] = viewkeys(
+                            candidates)
+                else:
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
-                self.suffix_sync += len(suffixes)
-                self.logger.update_stats('suffix.syncs', len(suffixes))
-            except (Exception, Timeout):
-                failure_devs_info.add((node['replication_ip'],
-                                       node['device']))
-                self.logger.exception(_("Error syncing with node: %s") %
-                                      node)
+                responses.append(success)
+
         except (Exception, Timeout):
-            failure_devs_info.update(target_devs_info)
-            self.logger.exception(_("Error syncing partition"))
+            self.logger.exception(_("Error syncing handoff partition"))
         finally:
+            target_devs_info = set([(target_dev['replication_ip'],
+                                     target_dev['device'])
+                                    for target_dev in job['nodes']])
             self.stats['success'] += len(target_devs_info - failure_devs_info)
             self._add_failure_stats(failure_devs_info)
             self.partition_times.append(time.time() - begin)
-            self.logger.timing_since('partition.update.timing', begin)
+            self.logger.timing_since('partition.delete.timing', begin)
 
     def stats_line(self):
         """
@@ -370,35 +361,52 @@ class ObjectMigrator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
-    def build_migration_jobs(self, policy, src_dev, dst_dev):
+    def build_migration_jobs(self, policy, partition, nodes, account_name, container_name, object_name, remote):
         """
         Helper function for collect_jobs to build jobs for replication
         using replication style storage policy
         """
+        ips = whataremyips(self.bind_ip)
+
+        local_dev = [d for d in policy.object_ring.devs if (d and
+                                                            is_local_device(
+                                                                ips,
+                                                                self.port,
+                                                                d['replication_ip'],
+                                                                d['replication_port']
+                                                            ))]
+
+        if account_name and container_name and object_name:
+            name_hash = hash_path(account_name, container_name, object_name)
+
         jobs = []
         data_dir = get_data_dir(policy)
-        dev_path = join(self.devices_dir, src_dev['device'])
-        obj_path = join(dev_path, data_dir)
-        tmp_path = join(dev_path, get_tmp_dir(policy))
+        for dev in local_dev:
+            for node in nodes:
+                if node['device'] == dev['device']:
+                    dev_path = join(self.devices_dir, node['device'])
+                    objs_path = join(dev_path, data_dir)
+                    tmp_path = join(dev_path, get_tmp_dir(policy))
+                    job_path = obj_dir = join(
+                        dev_path, storage_directory(data_dir,
+                                                       partition, name_hash))
 
-        if self.mount_check and not ismount(dev_path):
-            self._add_failure_stats()
-        try:
-            job_path = join(obj_path, 'abc') #job_path = join(obj_path, partition)
-            nodes = policy.object_ring.get_part_nodes(int('abc'))
-            jobs.append(
-                dict(path=job_path,
-                     device=src_dev['device'],
-                     obj_path=obj_path,
-                     nodes=nodes,
-                     policy=policy,
-                     partition='abc',
-                     region=src_dev['region']))
-        except ValueError:
-                self._add_failure_stats()
+                    if self.mount_check and not ismount(job_path):
+                        self._add_failure_stats()
+                    try:
+                        jobs.append(
+                            dict(path=job_path,
+                                 device=node['device'],
+                                 obj=obj_dir,
+                                 nodes = nodes,
+                                 policy=policy,
+                                 partition=partition,
+                                 region=dev['region']))
+                    except ValueError:
+                            self._add_failure_stats()
         return jobs
 
-    def collect_jobs(self, src_dev, dst_dev):
+    def collect_jobs(self, policy_idx, account_name, container_name, object_name, dev):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
         partitions, nodes, etc to be rsynced. (mjwtom: changed to return object)
@@ -410,18 +418,19 @@ class ObjectMigrator(Daemon):
         :param override_policies: if set, only jobs in these storage
             policies will be returned
         """
-        for policy in POLICIES:
-            if policy.policy_type == DEDUPE_POLICY:
-                self.load_object_ring(policy)
-                break
+        policy = POLICIES.get_by_index(policy_idx)
+        self.load_object_ring(policy)
+        partition, nodes = policy.object_ring.get_nodes(
+        account_name, container_name, object_name)
+
         jobs = []
         ips = whataremyips(self.bind_ip)
-        jobs += self.build_migration_jobs(policy, src_dev, dst_dev)
+        jobs += self.build_migration_jobs(policy, partition, nodes, account_name, container_name, object_name, dev)
         random.shuffle(jobs)
         self.job_count = len(jobs)
         return jobs
 
-    def migrate(self, src_dev, dst_dev):
+    def migrate(self, policy_idx, account_name, container_name, object_name, dev):
         """Run a migration pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -438,17 +447,12 @@ class ObjectMigrator(Daemon):
         current_nodes = None
         try:
             self.run_pool = GreenPool(size=self.concurrency)
-            jobs = self.collect_jobs()
+            jobs = self.collect_jobs(policy_idx, account_name, container_name, object_name, dev)
             for job in jobs:
-                dev_path = join(self.devices_dir, job['device'])
-                if self.mount_check and not ismount(dev_path):
+                if self.mount_check and not ismount(job['obj']):
                     self._add_failure_stats()
                     self.logger.warn(_('%s is not mounted'), job['device'])
                     continue
-                if not self.check_ring(job['policy'].object_ring):
-                    self.logger.info(_("Ring change detected. Aborting "
-                                       "current replication pass."))
-                    return
                 try:
                     if isfile(job['path']):
                         # Clean up any (probably zero-byte) files where a
@@ -460,7 +464,7 @@ class ObjectMigrator(Daemon):
                         continue
                 except OSError:
                     continue
-                self.run_pool.spawn(self._migrate, job)
+                self._migrate(job)  # self.run_pool.spawn(self._migrate, job)
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
@@ -480,14 +484,25 @@ class ObjectMigrator(Daemon):
         self._zero_stats()
         self.logger.info(_("Running object migration in script mode."))
 
-        self.deamon = False
-        dev = list_from_csv(kwargs.get('dev'))
+        dev = list_from_csv(kwargs.get('device'))
         account_name = list_from_csv(kwargs.get('account'))
         container_name = list_from_csv(kwargs.get('container'))
         object_name = list_from_csv(kwargs.get('object'))
         policy_idx = list_from_csv(kwargs.get('policy'))
+
+        if dev[0]:
+            dev = int(dev[0])
+        if policy_idx[0]:
+            policy_idx = int(policy_idx[0])
+        if account_name[0]:
+            account_name = account_name[0]
+        if container_name[0]:
+            container_name = container_name[0]
+        if object_name[0]:
+            object_name = object_name[0]
+
         # Run the migrator
-        self.migrate()
+        self.migrate(policy_idx, account_name, container_name, object_name, dev)
         total = (time.time() - self.stats['start']) / 60
         self.logger.info(
             _("Object migration complete (once). (%.02f minutes)"), total)
