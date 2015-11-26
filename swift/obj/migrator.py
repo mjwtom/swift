@@ -74,6 +74,7 @@ class ObjectMigrator(Daemon):
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
+        self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
@@ -102,7 +103,7 @@ class ObjectMigrator(Daemon):
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.default_headers = {
             'Content-Length': '0',
-            'user-agent': 'object-migrator %s' % os.getpid()}
+            'user-agent': 'object-replicator %s' % os.getpid()}
         self.rsync_error_log_line_length = \
             int(conf.get('rsync_error_log_line_length', 0))
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
@@ -128,7 +129,7 @@ class ObjectMigrator(Daemon):
         return list(my_replication_ips)
 
     # Just exists for doc anchor point
-    def sync(self, node, job, suffixes, *args, **kwargs):
+    def sync(self, node, job, *args, **kwargs):
         """
         Synchronize local suffix directories from a partition with a remote
         node.
@@ -139,7 +140,7 @@ class ObjectMigrator(Daemon):
 
         :returns: boolean and dictionary, boolean indicating success or failure
         """
-        return self.sync_method(node, job, suffixes, *args, **kwargs)
+        return self.sync_method(node, job, *args, **kwargs)
 
     def load_object_ring(self, policy):
         """
@@ -196,7 +197,7 @@ class ObjectMigrator(Daemon):
                 {'src': args[-2], 'dst': args[-1], 'time': total_time})
         return ret_val
 
-    def rsync(self, node, job, suffixes):
+    def rsync(self, node, job):
         """
         Uses rsync to implement the sync method. This was the first
         sync method in Swift.
@@ -205,6 +206,7 @@ class ObjectMigrator(Daemon):
             return False, {}
         args = [
             'rsync',
+            '--relative',
             '--recursive',
             '--whole-file',
             '--human-readable',
@@ -221,17 +223,9 @@ class ObjectMigrator(Daemon):
             # a different region than the local one.
             args.append('--compress')
         rsync_module = rsync_module_interpolation(self.rsync_module, node)
-        had_any = False
-        for suffix in suffixes:
-            spath = join(job['path'], suffix)
-            if os.path.exists(spath):
-                args.append(spath)
-                had_any = True
-        if not had_any:
-            return False, {}
-        data_dir = get_data_dir(job['policy'])
+        args.append(job['path'])
         args.append(join(rsync_module, node['device'],
-                    data_dir, job['partition']))
+                    job['storage_dir']))
         return self._rsync(args) == 0, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
@@ -240,59 +234,77 @@ class ObjectMigrator(Daemon):
 
     def _migrate(self, job):
         """
-        High-level method that replicates a single partition that doesn't
-        belong on this node.
+        High-level method that replicates a single partition.
 
         :param job: a dict containing info about the partition to be replicated
         """
-
         self.migration_count += 1
-        self.logger.increment('partition.delete.count.%s' % (job['device'],))
+        self.logger.increment('partition.update.count.%s' % (job['path'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+        target_devs_info = set()
         failure_devs_info = set()
         begin = time.time()
         try:
-            responses = []
-            synced_remote_regions = {}
-            delete_objs = None
-            for node in job['nodes']:
-                self.stats['rsync'] += 1
-                kwargs = {}
-                if node['region'] in synced_remote_regions and \
-                        self.conf.get('sync_method', 'rsync') == 'ssync':
-                    kwargs['remote_check_objs'] = \
-                        synced_remote_regions[node['region']]
-                # candidates is a dict(hash=>timestamp) of objects
-                # for deletion
-                success, candidates = self.sync(
-                    node, job, job['path'], **kwargs)
-                if success:
-                    with Timeout(self.http_timeout):
-                        conn = http_connect(
-                            node['replication_ip'],
-                            node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '/', headers=headers) #'/' + '-'.join(suffixes), headers=headers)
-                        conn.getresponse().read()
-                    if node['region'] != job['region']:
-                        synced_remote_regions[node['region']] = viewkeys(
-                            candidates)
-                else:
+            hashed, local_hash = tpool_reraise(
+                self._diskfile_mgr._get_hashes, job['hash_path'],
+                do_listdir=(self.migration_count % 10) == 0,
+                reclaim_age=self.reclaim_age)
+            suffixes = [job['suffix']]
+            node = job['nodes'][0]
+            with Timeout(self.http_timeout):
+                resp = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], job['partition'], 'REPLICATE',
+                    '', headers=headers).getresponse()
+                if resp.status == HTTP_INSUFFICIENT_STORAGE:
+                    self.logger.error(_('%(ip)s/%(device)s responded'
+                                        ' as unmounted'), node)
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
-                responses.append(success)
+                elif resp.status != HTTP_OK:
+                    self.logger.error(_("Invalid response %(resp)s "
+                                        "from %(ip)s"),
+                                      {'resp': resp.status,
+                                       'ip': node['replication_ip']})
+                    failure_devs_info.add((node['replication_ip'],
+                                          node['device']))
+                else:
+                    remote_hash = pickle.loads(resp.read())
+                del resp
+            suffixes = [suffix for suffix in local_hash if
+                                local_hash[suffix] !=
+                        remote_hash.get(suffix, -1)]
+            if not suffixes:
+                self.stats['hashmatch'] += 1
+                return
+            hashed, recalc_hash = tpool_reraise(
+                self._diskfile_mgr._get_hashes,
+                job['hash_path'], recalculate=suffixes,
+                reclaim_age=self.reclaim_age)
+            self.logger.update_stats('suffix.hashes', hashed)
+            local_hash = recalc_hash
+            suffixes = [suffix for suffix in local_hash if
+                        local_hash[suffix] !=
+                        remote_hash.get(suffix, -1)]
+            self.stats['rsync'] += 1
+            success, _junk = self.sync(node, job)
+            with Timeout(self.http_timeout):
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], job['partition'], 'REPLICATE',
+                    '/' + '-'.join(suffixes),
+                    headers=headers)
+                conn.getresponse().read()
+            if not success:
+                failure_devs_info.add((node['replication_ip'],
+                                       node['device']))
 
         except (Exception, Timeout):
-            self.logger.exception(_("Error syncing handoff partition"))
-        finally:
-            target_devs_info = set([(target_dev['replication_ip'],
-                                     target_dev['device'])
-                                    for target_dev in job['nodes']])
-            self.stats['success'] += len(target_devs_info - failure_devs_info)
-            self._add_failure_stats(failure_devs_info)
-            self.partition_times.append(time.time() - begin)
-            self.logger.timing_since('partition.delete.timing', begin)
+            failure_devs_info.add((node['replication_ip'],
+                                   node['device']))
+            self.logger.exception(_("Error syncing with node: %s") %
+                                  node)
 
     def stats_line(self):
         """
@@ -387,9 +399,9 @@ class ObjectMigrator(Daemon):
                     dev_path = join(self.devices_dir, node['device'])
                     objs_path = join(dev_path, data_dir)
                     tmp_path = join(dev_path, get_tmp_dir(policy))
+                    storage_dir = storage_directory(data_dir, partition, name_hash)
                     job_path = obj_dir = join(
-                        dev_path, storage_directory(data_dir,
-                                                       partition, name_hash))
+                        dev_path, storage_dir)
 
                     if self.mount_check and not ismount(job_path):
                         self._add_failure_stats()
@@ -398,10 +410,13 @@ class ObjectMigrator(Daemon):
                             dict(path=job_path,
                                  device=node['device'],
                                  obj=obj_dir,
-                                 nodes = nodes,
+                                 nodes = nodes[1:],
                                  policy=policy,
-                                 partition=partition,
-                                 region=dev['region']))
+                                 suffix = name_hash[-3:],
+                                 partition=str(partition),
+                                 storage_dir = storage_dir,
+                                 region=dev['region'],
+                                 hash_path = join(objs_path, str(partition))))
                     except ValueError:
                             self._add_failure_stats()
         return jobs
