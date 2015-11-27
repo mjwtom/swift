@@ -206,7 +206,6 @@ class ObjectMigrator(Daemon):
             return False, {}
         args = [
             'rsync',
-            '--relative',
             '--recursive',
             '--whole-file',
             '--human-readable',
@@ -224,8 +223,9 @@ class ObjectMigrator(Daemon):
             args.append('--compress')
         rsync_module = rsync_module_interpolation(self.rsync_module, node)
         args.append(job['path'])
+        data_dir = get_data_dir(job['policy'])
         args.append(join(rsync_module, node['device'],
-                    job['storage_dir']))
+                    data_dir, job['partition'], job['suffix']))
         return self._rsync(args) == 0, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
@@ -242,17 +242,22 @@ class ObjectMigrator(Daemon):
         self.logger.increment('partition.update.count.%s' % (job['path'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-        target_devs_info = set()
-        failure_devs_info = set()
         begin = time.time()
         try:
+            '''
+            This part is modified from the replicator, we removed the hash check
+            '''
+            '''
             hashed, local_hash = tpool_reraise(
                 self._diskfile_mgr._get_hashes, job['hash_path'],
                 do_listdir=(self.migration_count % 10) == 0,
                 reclaim_age=self.reclaim_age)
             suffixes = [job['suffix']]
+            '''
             node = job['nodes'][0]
+            '''
             with Timeout(self.http_timeout):
+                #remove the hash check
                 resp = http_connect(
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
@@ -288,7 +293,21 @@ class ObjectMigrator(Daemon):
                         local_hash[suffix] !=
                         remote_hash.get(suffix, -1)]
             self.stats['rsync'] += 1
+            '''
+            with Timeout(self.http_timeout):
+                #create data dir
+                resp = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], job['partition'], 'MKDIRS',
+                    '/'+job['suffix'], headers=headers).getresponse()
+                if resp.status != HTTP_OK:
+                    self.logger.error(_("Invalid response %(resp)s "
+                                        "from %(ip)s"),
+                                      {'resp': resp.status,
+                                       'ip': node['replication_ip']})
+                del resp
             success, _junk = self.sync(node, job)
+            '''
             with Timeout(self.http_timeout):
                 conn = http_connect(
                     node['replication_ip'], node['replication_port'],
@@ -296,13 +315,11 @@ class ObjectMigrator(Daemon):
                     '/' + '-'.join(suffixes),
                     headers=headers)
                 conn.getresponse().read()
+            '''
             if not success:
-                failure_devs_info.add((node['replication_ip'],
-                                       node['device']))
-
+                self.logger.exception(_("Error mkdir: %s") %
+                                  job['path'])
         except (Exception, Timeout):
-            failure_devs_info.add((node['replication_ip'],
-                                   node['device']))
             self.logger.exception(_("Error syncing with node: %s") %
                                   node)
 

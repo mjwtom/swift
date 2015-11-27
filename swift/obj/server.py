@@ -55,6 +55,13 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
 
 
+DATADIR_BASE = 'objects'
+from swift.common.storage_policy import get_policy_string
+from functools import partial
+get_data_dir = partial(get_policy_string, DATADIR_BASE)
+from swift.common.utils import mkdirs
+
+
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
     mime_documents_iter = iter_multipart_mime_documents(
         wsgi_input, mime_boundary, read_chunk_size)
@@ -933,6 +940,31 @@ class ObjectController(BaseStorageServer):
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
             resp = Response(body=pickle.dumps(hashes))
+        return resp
+
+    @public
+    @replication
+    @timing_stats(sample_rate=0.1)
+    def MKDIRS(self, request):
+        """
+        Handle MIGRATE requests for the Swift Object Server.  This is used
+        by the object replicator to get hashes for directories.
+
+        Note that the name REPLICATE is preserved for historical reasons as
+        this verb really just returns the hashes information for the specified
+        parameters and is used, for example, by both replication and EC.
+        """
+        device, partition, suffix, policy = \
+            get_name_and_placement(request, 2, 3, True)
+        try:
+            dev_path = self._diskfile_router[policy].get_dev_path(device)
+            suffix_path = os.path.join(dev_path, get_data_dir(policy),  partition, suffix)
+            if not os.path.exists(suffix_path):
+                mkdirs(suffix_path)
+        except Exception:
+            resp = HTTPInternalServerError(request=request)
+        else:
+            resp = Response()
         return resp
 
     @public
