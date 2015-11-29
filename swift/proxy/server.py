@@ -35,7 +35,7 @@ from swift.common.utils import cache_from_env, get_logger, \
     register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
-    ObjectControllerRouter, InfoController
+    ObjectControllerRouter, InfoController, MigrationController
 from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
@@ -264,6 +264,13 @@ class Application(object):
                      disallowed_sections=self.disallowed_sections,
                      admin_key=self.admin_key)
             return InfoController, d
+
+        #mjw: MigrationController is the only one deals with disk failure
+        if req.method == 'DISK_FAILURE':
+            version, account, device = split_path(req.path, 1, 3, True)
+            d = dict(version=version,
+                     device = device)
+            return MigrationController, d
 
         version, account, container, obj = split_path(req.path, 1, 4, True)
         d = dict(version=version,

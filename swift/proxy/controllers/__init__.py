@@ -16,6 +16,7 @@ from swift.proxy.controllers.info import InfoController
 from swift.proxy.controllers.obj import ObjectControllerRouter
 from swift.proxy.controllers.account import AccountController
 from swift.proxy.controllers.container import ContainerController
+from swift.proxy.controllers.migrator import MigrationController
 
 __all__ = [
     'AccountController',
@@ -23,4 +24,5 @@ __all__ = [
     'Controller',
     'InfoController',
     'ObjectControllerRouter',
+    'MigrationController',
 ]
