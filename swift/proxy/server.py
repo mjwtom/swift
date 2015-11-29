@@ -269,6 +269,7 @@ class Application(object):
         if req.method == 'DISK_FAILURE':
             version, account, device = split_path(req.path, 1, 3, True)
             d = dict(version=version,
+                     account_name=account,
                      device = device)
             return MigrationController, d
 

@@ -17,7 +17,7 @@ from time import time
 
 from swift.common.utils import public, get_hmac, get_swift_info, json, \
     streq_const_time
-from swift.proxy.controllers.base import Controller, delay_denial
+from swift.proxy.controllers.base import Controller, delay_denial, get_container_info
 from swift.common.swob import HTTPOk, HTTPServiceUnavailable, Request
 
 import six
@@ -88,7 +88,9 @@ class MigrationController(Controller):
 
         :param req: swob.Request object
         """
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        info = get_container_info(req.environ, self)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                           info['storage_policy'])
         policy = POLICIES.get_by_index(policy_index)
         if not policy:
             # This indicates that a new policy has been created,
@@ -105,8 +107,14 @@ class MigrationController(Controller):
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         environ = {'from': nodes[0], 'to': nodes[1]}
+        environ['Content_length']
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        req.headers['Content-Length'] = str(0)
         headers = self.generate_request_headers(req, additional=environ)
+        headers['Content-Length'] = str(0)
+        headers['X-Backend-Storage-Policy-Index'] = policy_index
         conn = self.connect_node(nodes[0], headers)
+        conn.putrequest('MIGRATE','/')
         if HTTPOk != conn.resp:
             return HTTPServiceUnavailable(request = req)
         return HTTPOk(request=req,
