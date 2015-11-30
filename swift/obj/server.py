@@ -930,16 +930,7 @@ class ObjectController(BaseStorageServer):
         this verb really just returns the hashes information for the specified
         parameters and is used, for example, by both replication and EC.
         """
-        device, partition, suffix_parts, policy = \
-            get_name_and_placement(request, 2, 3, True)
-        suffixes = suffix_parts.split('-') if suffix_parts else []
-        try:
-            hashes = self._diskfile_router[policy].get_hashes(
-                device, partition, suffixes, policy)
-        except DiskFileDeviceUnavailable:
-            resp = HTTPInsufficientStorage(drive=device, request=request)
-        else:
-            resp = Response(body=pickle.dumps(hashes))
+        resp = Response()
         return resp
 
     @public

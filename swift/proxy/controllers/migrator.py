@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from time import time
+import time
 
 from swift.common.utils import public, get_hmac, get_swift_info, json, \
     streq_const_time
-from swift.proxy.controllers.base import Controller, delay_denial, get_container_info
+from swift.proxy.controllers.base import Controller, delay_denial, get_info
 from swift.common.swob import HTTPOk, HTTPServiceUnavailable, Request
 
 import six
@@ -41,10 +41,11 @@ class MigrationController(Controller):
     """WSGI controller for info requests"""
     server_type = 'Migration'
 
-    def __init__(self, app, device,
+    def __init__(self, app, account_name, device,
                  **kwargs):
         Controller.__init__(self, app)
         self.device = unquote(device)
+        self.account_name = unquote(account_name)
         self.dedupe = app.dedupe
 
     @public
@@ -65,6 +66,7 @@ class MigrationController(Controller):
             if resp.status == HTTP_OK:
                 conn.resp = None
                 conn.node = node
+                conn.status = HTTP_OK
                 return conn
             elif is_server_error(resp.status):
                 self.app.error_occurred(
@@ -72,10 +74,13 @@ class MigrationController(Controller):
                     _('ERROR %(status)d Expect: 100-continue '
                       'From Object Server') % {
                           'status': resp.status})
+                return conn
         except (Exception, Timeout):
             self.app.exception_occurred(
                 node, _('Object'),
                 _('Expect: 100-continue on %s') % path)
+            return None
+        return None
 
 
     @public
@@ -88,10 +93,11 @@ class MigrationController(Controller):
 
         :param req: swob.Request object
         """
-        info = get_container_info(req.environ, self)
+        info = get_info(self.app, req.environ, self.account_name, ret_not_found=True)
+        info.setdefault('storage_policy', '0')
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                            info['storage_policy'])
-        policy = POLICIES.get_by_index(policy_index)
+        policy = POLICIES.get_by_index(3)#policy = POLICIES.get_by_index(policy_index)
         if not policy:
             # This indicates that a new policy has been created,
             # with rings, deployed, released (i.e. deprecated =
@@ -104,19 +110,22 @@ class MigrationController(Controller):
             # error and hopefully temporary.
             raise HTTPServiceUnavailable('Unknown Storage Policy')
         obj_ring = self.app.get_object_ring(policy_index)
+        #partition, nodes = obj_ring.get_nodes(
+            #self.account_name, self.container_name, self.object_name)
         partition, nodes = obj_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
+            self.account_name, 'mjwtom', 0)
         environ = {'from': nodes[0], 'to': nodes[1]}
-        environ['Content_length']
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         req.headers['Content-Length'] = str(0)
-        headers = self.generate_request_headers(req, additional=environ)
+        headers = self.generate_request_headers(req)#headers = self.generate_request_headers(req, additional=environ)
         headers['Content-Length'] = str(0)
-        headers['X-Backend-Storage-Policy-Index'] = policy_index
-        conn = self.connect_node(nodes[0], headers)
-        conn.putrequest('MIGRATE','/')
-        if HTTPOk != conn.resp:
-            return HTTPServiceUnavailable(request = req)
+        headers['X-Backend-Storage-Policy-Index'] = str(3) # policy_index
+        path = 'mjwtom/mjwtom/0'
+        conn = self.connect_node(nodes[0], path, headers=headers)
+        if not conn:
+            return HTTPServiceUnavailable(request=req)
+        if HTTP_OK != conn.status:
+            return HTTPServiceUnavailable(request=req)
         return HTTPOk(request=req,
                       headers={},
                       body='',
