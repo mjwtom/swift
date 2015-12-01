@@ -35,6 +35,7 @@ from swift.common.http import (
     HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
 from eventlet.timeout import Timeout
 from swift import gettext_ as _
+import six.moves.cPickle as pickle
 
 
 class MigrationController(Controller):
@@ -53,7 +54,7 @@ class MigrationController(Controller):
     def OPTIONS(self, req):
         return HTTPOk(request=req, headers={'Allow': 'DISK_FAILURE'})
 
-    def connect_node(self, node, path=None, headers=None):
+    def _connect_node(self, node, path=None, headers=None):
         try:
             start_time = time.time()
             with ConnectionTimeout(self.app.conn_timeout):
@@ -61,27 +62,45 @@ class MigrationController(Controller):
                     node['ip'], node['port'], 'MIGRATE',
                     path, headers)
             self.app.set_node_timing(node, time.time() - start_time)
+            '''
             with Timeout(self.app.node_timeout):
                 resp = conn.getexpect()
-            if resp.status == HTTP_OK:
+            '''
+            resp = conn.getexpect()
+            if resp.status == HTTP_CONTINUE:
                 conn.resp = None
                 conn.node = node
-                conn.status = HTTP_OK
                 return conn
+            elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
+                conn.resp = resp
+                conn.node = node
+                return conn
+            elif headers['If-None-Match'] is not None and \
+                    resp.status == HTTP_PRECONDITION_FAILED:
+                conn.resp = resp
+                conn.node = node
+                return conn
+            elif resp.status == HTTP_INSUFFICIENT_STORAGE:
+                self.app.error_limit(node, _('ERROR Insufficient Storage'))
             elif is_server_error(resp.status):
                 self.app.error_occurred(
                     node,
                     _('ERROR %(status)d Expect: 100-continue '
                       'From Object Server') % {
                           'status': resp.status})
-                return conn
         except (Exception, Timeout):
             self.app.exception_occurred(
                 node, _('Object'),
                 _('Expect: 100-continue on %s') % path)
-            return None
-        return None
 
+    def _get_connection(self, node, path=None, headers=None, expect=False):
+        """
+        Establish connections to storage nodes for PUT request
+        """
+        if expect:
+            headers['Expect'] = '100-continue'
+        conn = self._connect_node(node, path, headers)
+        return conn
 
     @public
     @delay_denial
@@ -114,17 +133,33 @@ class MigrationController(Controller):
             #self.account_name, self.container_name, self.object_name)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, 'mjwtom', 0)
-        environ = {'from': nodes[0], 'to': nodes[1]}
-        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
-        req.headers['Content-Length'] = str(0)
-        headers = self.generate_request_headers(req)#headers = self.generate_request_headers(req, additional=environ)
-        headers['Content-Length'] = str(0)
+
+        job={'src': nodes[0], 'dst': nodes[1], 'storage_policy': policy_index, 'obj': ['mjwtom', '0']}
+        data = pickle.dumps(job)
+        ll = len(data)
+
+        headers = dict()
+        headers['Content-Length'] = str(ll)
         headers['X-Backend-Storage-Policy-Index'] = str(3) # policy_index
+
         path = 'mjwtom/mjwtom/0'
-        conn = self.connect_node(nodes[0], path, headers=headers)
-        if not conn:
-            return HTTPServiceUnavailable(request=req)
-        if HTTP_OK != conn.status:
+        if ll>0:
+            expect = True
+        else:
+            expect = False
+        conn = self._get_connection(nodes[0], path, headers=headers, expect=expect)
+        conn.send(data)
+        try:
+            with Timeout(self.app.node_timeout):
+                if conn.resp:
+                    resp = conn.resp
+                else:
+                    resp = conn.getresponse()
+        except (Exception, Timeout):
+            self.app.exception_occurred(
+                conn.node, _('Object'),
+                _('Trying to get final status of PUT to %s') % req.path)
+        if HTTP_OK != resp.status:
             return HTTPServiceUnavailable(request=req)
         return HTTPOk(request=req,
                       headers={},

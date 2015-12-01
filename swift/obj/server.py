@@ -930,6 +930,14 @@ class ObjectController(BaseStorageServer):
         this verb really just returns the hashes information for the specified
         parameters and is used, for example, by both replication and EC.
         """
+        try:
+            fsize = request.message_length()
+        except ValueError as e:
+            return HTTPBadRequest(body=str(e), request=request,
+                                  content_type='text/plain')
+        input = request.environ['wsgi.input']
+        data = input.read()
+        job = pickle.loads(data)
         resp = Response()
         return resp
 
