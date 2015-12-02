@@ -77,7 +77,7 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 #mjw dedupe
 import os
 from swift.dedupe.chunk import chunkIter
-from swift.dedupe.dedupe_container import dedupe_container
+from swift.dedupe.dedupe_container import DedupeContainer
 from swift.common.storage_policy import DEDUPE_POLICY
 from swift.dedupe.DedupeResp import RespBodyIter
 
@@ -2887,13 +2887,13 @@ class DeduplicationObjectController(BaseObjectController):
                 if not self.dedupe.container.is_full():
                     continue
                 # the container is full, we send it to different locations
-                data = self.dedupe.container.tobyte()
+                data = self.dedupe.container.dumps()
                 partition, nodes = chunk_ring.get_nodes(self.account_name,
-                                                        self.container_name, self.dedupe.container.name)
+                                                        self.container_name, self.dedupe.container.get_name())
                 req.headers['Content-Length'] = str(len(data))
                 l = len(self.object_name)
                 tmp_pth = obj_path[:-l]
-                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.name
+                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
                  # check if object is set to be automatically deleted (i.e. expired)
                 req, delete_at_container, delete_at_part, \
                     delete_at_nodes = self._config_obj_expiration(req)
@@ -2906,8 +2906,8 @@ class DeduplicationObjectController(BaseObjectController):
                 self._store_chunk(req, data, nodes, partition, outgoing_headers)
 
                 self.dedupe.container_count += 1
-                self.dedupe.container = dedupe_container(str(self.dedupe.container_count),
-                                                         self.dedupe.dedupe_container_size)
+                self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
+                                                        self.dedupe.dc_size)
 
                 '''
 

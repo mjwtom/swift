@@ -7,13 +7,14 @@ import os
 import binascii
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
-from swift.dedupe.dedupe_container import dedupe_container
+from swift.dedupe.dedupe_container import DedupeContainer
 
 
 class RespBodyIter(object):
     def __init__(self, req, controller):
         self.controller = controller
         self.object_name = controller.object_name
+        self.dedupe = controller.dedupe
         self.req = req
         self.resp = controller.GETorHEAD(req)
         self.fingerprints = self.resp.body
@@ -27,7 +28,7 @@ class RespBodyIter(object):
         return self
 
     def __next_chunk__(self):
-        if(self.fp_cur >= self.fp_number):
+        if self.fp_cur >= self.fp_number:
             self.req.environ['PATH_INFO'] = self.req_environ_path
             raise StopIteration
         else:
@@ -42,28 +43,35 @@ class RespBodyIter(object):
         return resp.body
 
     def __next__(self):
-        if(self.fp_cur >= self.fp_number):
+        if self.fp_cur >= self.fp_number:
             self.req.environ['PATH_INFO'] = self.req_environ_path
             raise StopIteration
         else:
             fingerprint = self.fingerprints[self.fp_cur*self.fp_size:self.fp_cur*self.fp_size+self.fp_size]
             self.fp_cur += 1
-        dedupe = self.controller.dedupe
+        dedupe = self.dedupe
         container_id = dedupe.lookup(fingerprint)
 
         if container_id == str(dedupe.container_count):
-            return dedupe.container.kv[fingerprint]
+            return dedupe.container.kv.get(fingerprint, None)
+
+        dc_container = dedupe.DCFromCache(container_id)
+        if dc_container:
+            return dc_container.kv.get(fingerprint, None)
 
         l = len(self.object_name)
         tmp_pth = self.req_environ_path[:-l]
         self.req.environ['PATH_INFO'] = tmp_pth+ str(container_id)
 
-        container = dedupe_container(container_id)
+        dc_container = DedupeContainer(container_id)
 
         self.controller.object_name = container_id
         resp = self.controller.GETorHEAD(self.req)
-        container.frombyte(resp.body)
-        return container.kv[fingerprint]
+        dc_container.loads(resp.body)
+
+        dedupe.DC2Cache(container_id, dc_container)
+
+        return dc_container.kv.get(fingerprint, None)
 
     def next(self):
         return self.__next__()
