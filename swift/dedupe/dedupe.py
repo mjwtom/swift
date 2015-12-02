@@ -5,6 +5,7 @@ from swift.dedupe.cache import DedupeCache
 from swift.dedupe.pybloom.pybloom import BloomFilter
 from swift.dedupe.fingerprint import fingerprint
 from swift.dedupe.dedupe_container import DedupeContainer
+from swift.dedupe.state import DedupeState
 
 
 class dedupe(object):
@@ -17,6 +18,7 @@ class dedupe(object):
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.container_count = 0
         self.container = DedupeContainer(str(self.container_count), self.dc_size)
+        self.state = DedupeState()
 
     def lookup(self, key):
         if not (key in self.bf):

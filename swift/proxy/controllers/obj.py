@@ -2875,12 +2875,15 @@ class DeduplicationObjectController(BaseObjectController):
         while True:
             try:
                 chunk = next(chunk_source)
+                ##
+                self.dedupe.state.incre_total_chunk()
                 etag_hasher.update(chunk) # update the checksum
                 hash = self.dedupe.hash(chunk)
                 fp = hash.hexdigest()
                 fps += fp
                 ret = self.dedupe.lookup(fp)
                 if ret:
+                    self.dedupe.state.incre_dupe_chunk()
                     continue
                 self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
                 self.dedupe.container.add(fp, chunk)
