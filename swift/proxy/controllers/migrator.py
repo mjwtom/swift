@@ -62,11 +62,8 @@ class MigrationController(Controller):
                     node['ip'], node['port'], 'MIGRATE',
                     path, headers)
             self.app.set_node_timing(node, time.time() - start_time)
-            '''
             with Timeout(self.app.node_timeout):
                 resp = conn.getexpect()
-            '''
-            resp = conn.getexpect()
             if resp.status == HTTP_CONTINUE:
                 conn.resp = None
                 conn.node = node

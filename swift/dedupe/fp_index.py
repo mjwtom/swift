@@ -30,12 +30,14 @@ class fp_index(object):
     def lookup_fp_index(self, fp):
         data = (fp,)
         self.c.execute('SELECT container_id FROM fp_index WHERE fp=?', data)
-        return self.c.fetchone()[0]
+        r, = self.c.fetchone()
+        return r
 
     def lookup_obj_fps(self, obj_hash):
         data = (obj_hash,)
         self.c.execute('SELECT value FROM fp_index WHERE obj=?', data)
-        return self.c.fetchone()[0]
+        r, = self.c.fetchone()
+        return r
 
     def insert_etag(self, key, value):
         data = (key, value)
@@ -45,7 +47,8 @@ class fp_index(object):
     def lookup_etag(self, key):
         data = (key,)
         self.c.execute('SELECT etag FROM obj_etag WHERE obj=?', data)
-        return self.c.fetchone()
+        r = self.c.fetchone()
+        return r
 
 '''
 def testinsert():
