@@ -45,8 +45,8 @@ class MigrationController(Controller):
     def __init__(self, app, account_name, device,
                  **kwargs):
         Controller.__init__(self, app)
-        self.device = unquote(device)
         self.account_name = unquote(account_name)
+        self.device = unquote(device)
         self.dedupe = app.dedupe
 
     @public

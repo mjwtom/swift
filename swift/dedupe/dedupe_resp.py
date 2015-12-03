@@ -4,9 +4,6 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 '''
 
 import os
-import binascii
-from swift import gettext_ as _
-from swift.common.storage_policy import POLICIES
 from swift.dedupe.dedupe_container import DedupeContainer
 
 

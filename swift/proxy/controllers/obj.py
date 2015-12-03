@@ -79,7 +79,8 @@ import os
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.common.storage_policy import DEDUPE_POLICY
-from swift.dedupe.DedupeResp import RespBodyIter
+from swift.dedupe.dedupe_resp import RespBodyIter
+from swift.dedupe.iter_data import DataIter
 
 
 def copy_headers_into(from_r, to_r):
@@ -2703,284 +2704,6 @@ class DeduplicationObjectController(BaseObjectController):
             float(Timestamp(req.headers['X-Timestamp'])))
         return resp
 
-    def _store_chunk(self, req, chunk, nodes, partition,
-                     outgoing_headers):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        # RFC2616:8.2.3 disallows 100-continue without a body
-        if (req.content_length > 0) or req.is_chunked:
-            expect = True
-        else:
-            expect = False
-        conns = self._get_put_connections(req, nodes, partition,
-                                          outgoing_headers, policy, expect)
-        min_conns = quorum_size(len(nodes))
-        try:
-            # check that a minimum number of connections were established and
-            # meet all the correct conditions set in the request
-            self._check_failure_put_connections(conns, req, nodes, min_conns)
-
-            # transfer data
-            # self._transfer_data(req, chunk, conns, nodes)
-            for conn in conns:
-                try:
-                    with ChunkWriteTimeout(self.app.node_timeout):
-                        conn.send(chunk)
-                except (Exception, ChunkWriteTimeout):
-                    self.app.exception_occurred(
-                        conn.node, _('Object'),
-                        _('Trying to write to %s') % req.path)
-
-            # get responses
-            statuses, reasons, bodies, etags = self._get_put_responses(
-                req, conns, nodes)
-        except HTTPException as resp:
-            return resp
-        finally:
-            for conn in conns:
-                conn.close()
-
-        if len(etags) > 1:
-            self.app.logger.error(
-                _('Object servers returned %s mismatched etags'), len(etags))
-            return HTTPServerError(request=req)
-        etag = etags.pop() if len(etags) else None
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Object PUT'), etag=etag)
-        resp.last_modified = math.ceil(
-            float(Timestamp(req.headers['X-Timestamp'])))
-        return resp
-
-    def _dedupe_store_object_1b1(self, req, data_source,
-                             chunk_ring, object_name):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
-
-        #backup the length and path
-        obj_path = req.environ['PATH_INFO']
-        obj_len = req.headers['Content-length']
-        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
-        etag_hasher = md5()
-        fps = ''
-        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        while True:
-            try:
-                chunk = next(chunk_source)
-                etag_hasher.update(chunk) # update the checksum
-                hash = self.dedupe.hash(chunk)
-                fp = hash.hexdigest()
-                fps += fp
-                ret = self.dedupe.lookup(fp)
-                if ret:
-                    continue
-                self.dedupe.insert_fp_index(fp, '', object_name)
-                partition, nodes = chunk_ring.get_nodes(self.account_name, self.container_name, fp)
-                req.headers['Content-Length'] = str(len(chunk))
-                req.environ['PATH_INFO'] = os.path.dirname(obj_path)
-                req.environ['PATH_INFO'] = req.environ['PATH_INFO']+'/'+fp
-                 # check if object is set to be automatically deleted (i.e. expired)
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-
-                # add special headers to be handled by storage nodes
-                outgoing_headers = self._backend_requests(
-                    req, len(nodes), container_partition, container_nodes,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-
-                self._store_chunk(req, chunk, nodes, partition, outgoing_headers)
-            except StopIteration:
-                break
-
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        partition, nodes = chunk_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        #update the req
-        req.headers['Content-Length'] = str(len(fps))
-        req.environ['PATH_INFO'] = obj_path
-         # check if object is set to be automatically deleted (i.e. expired)
-        req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
-
-        # add special headers to be handled by storage nodes
-        outgoing_headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
-
-        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
-        resp.headers['etag'] = etag_hasher.hexdigest().strip()
-        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
-        return resp
-
-    def _dedupe_store_object(self, req, data_source,
-                             chunk_ring, object_name):
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
-
-        #backup the length and path
-        obj_path = req.environ['PATH_INFO']
-        obj_len = req.headers['Content-length']
-        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
-        etag_hasher = md5()
-        fps = ''
-        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        while True:
-            try:
-                chunk = next(chunk_source)
-                ##
-                self.dedupe.state.incre_total_chunk()
-                etag_hasher.update(chunk) # update the checksum
-                hash = self.dedupe.hash(chunk)
-                fp = hash.hexdigest()
-                fps += fp
-                ret = self.dedupe.lookup(fp)
-                if ret:
-                    self.dedupe.state.incre_dupe_chunk()
-                    continue
-                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
-                self.dedupe.container.add(fp, chunk)
-                if not self.dedupe.container.is_full():
-                    continue
-                # the container is full, we send it to different locations
-                data = self.dedupe.container.dumps()
-                partition, nodes = chunk_ring.get_nodes(self.account_name,
-                                                        self.container_name, self.dedupe.container.get_name())
-                req.headers['Content-Length'] = str(len(data))
-                l = len(self.object_name)
-                tmp_pth = obj_path[:-l]
-                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
-                 # check if object is set to be automatically deleted (i.e. expired)
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-
-                # add special headers to be handled by storage nodes
-                outgoing_headers = self._backend_requests(
-                    req, len(nodes), container_partition, container_nodes,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-
-                self._store_chunk(req, data, nodes, partition, outgoing_headers)
-
-                self.dedupe.container_count += 1
-                self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
-                                                        self.dedupe.dc_size)
-
-                '''
-
-                policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-                policy = POLICIES.get_by_index(policy_index)
-                if not nodes:
-                    return HTTPNotFound()
-
-                # RFC2616:8.2.3 disallows 100-continue without a body
-                if (req.content_length > 0) or req.is_chunked:
-                    expect = True
-                else:
-                    expect = False
-
-                conns = self._get_put_connections(req, nodes, partition,
-                                          outgoing_headers, policy, expect)
-                min_conns = quorum_size(len(nodes))
-                try:
-                    # check that a minimum number of connections were established and
-                    # meet all the correct conditions set in the request
-                    self._check_failure_put_connections(conns, req, nodes, min_conns)
-
-                    # transfer data
-                    self._transfer_data(req, data_source, conns, nodes)
-
-                    # get responses
-                    statuses, reasons, bodies, etags = self._get_put_responses(
-                        req, conns, nodes)
-                except HTTPException as resp:
-                    return resp
-                finally:
-                    for conn in conns:
-                        conn.close()
-                '''
-
-            except StopIteration:
-                break
-
-        """
-        Store a replicated object.
-
-        This method is responsible for establishing connection
-        with storage nodes and sending object to each one of those
-        nodes. After sending the data, the "best" response will be
-        returned based on statuses from all connections
-        """
-        partition, nodes = chunk_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        #update the req
-        req.headers['Content-Length'] = str(len(fps))
-        req.environ['PATH_INFO'] = obj_path
-         # check if object is set to be automatically deleted (i.e. expired)
-        req, delete_at_container, delete_at_part, \
-            delete_at_nodes = self._config_obj_expiration(req)
-
-        # add special headers to be handled by storage nodes
-        outgoing_headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
-
-        resp = self._store_chunk(req, fps, nodes, partition, outgoing_headers)
-        resp.headers['etag'] = etag_hasher.hexdigest().strip()
-        self.dedupe.index.insert_etag(object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
-        return resp
-
     @public
     @cors_validation
     @delay_denial
@@ -3033,11 +2756,76 @@ class DeduplicationObjectController(BaseObjectController):
             if error_response:
                 return error_response
         else:
-            reader = req.environ['wsgi.input'].read
-            data_source = iter(lambda: reader(self.app.client_chunk_size), '')
+            def reader():
+                try:
+                    return req.environ['wsgi.input'].read(
+                        self.app.client_chunk_size)
+                except (ValueError, IOError) as e:
+                    raise ChunkReadError(str(e))
+            data_source = iter(reader, '')
             update_response = lambda req, resp: resp
 
-        # check if object is set to be automatically deleted (i.e. expired)
+        #backup the length and path
+        obj_path = req.environ['PATH_INFO']
+        obj_len = req.headers['Content-length']
+        dedupe_ring = obj_ring
+        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        etag_hasher = md5()
+        fps = ''
+        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        while True:
+            try:
+                chunk = next(chunk_source)
+                ##state
+                self.dedupe.state.incre_total_chunk()
+                etag_hasher.update(chunk) # update the checksum
+                hash = self.dedupe.hash(chunk)
+                fp = hash.hexdigest()
+                fps += fp
+                ret = self.dedupe.lookup(fp)
+                if ret:
+                    self.dedupe.state.incre_dupe_chunk()
+                    continue
+                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
+                self.dedupe.container.add(fp, chunk)
+                if not self.dedupe.container.is_full():
+                    continue
+                # the container is full, we send it to different locations
+                data = self.dedupe.container.dumps()
+                partition, nodes = dedupe_ring.get_nodes(self.account_name,
+                                                        self.container_name, self.dedupe.container.get_name())
+                req.headers['Content-Length'] = str(len(data))
+                l = len(self.object_name)
+                tmp_pth = obj_path[:-l]
+                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
+                 # check if object is set to be automatically deleted (i.e. expired)
+                req, delete_at_container, delete_at_part, \
+                    delete_at_nodes = self._config_obj_expiration(req)
+
+                # add special headers to be handled by storage nodes
+                outgoing_headers = self._backend_requests(
+                    req, len(nodes), container_partition, container_nodes,
+                    delete_at_container, delete_at_part, delete_at_nodes)
+                data_iter = DataIter(data)
+                self._store_object(req, data_iter, nodes, partition, outgoing_headers)
+
+                self.dedupe.container_count += 1
+                self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
+                                                        self.dedupe.dc_size)
+            except StopIteration:
+                break
+
+        partition, nodes = obj_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        #update the req
+        req.headers['Content-Length'] = str(len(fps))
+        req.environ['PATH_INFO'] = obj_path
+         # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
@@ -3045,10 +2833,11 @@ class DeduplicationObjectController(BaseObjectController):
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes)
+        data_iter = DataIter(fps)
+        resp = self._store_object(req, data_iter, nodes, partition, outgoing_headers)
+        resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        self.dedupe.index.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
 
-        # send object to storage nodes
-        resp = self._dedupe_store_object(
-            req, data_source, obj_ring, self.object_name)
         return update_response(req, resp)
 
     @public
