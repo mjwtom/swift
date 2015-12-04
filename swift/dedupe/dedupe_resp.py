@@ -24,21 +24,6 @@ class RespBodyIter(object):
     def __iter__(self):
         return self
 
-    def __next_chunk__(self):
-        if self.fp_cur >= self.fp_number:
-            self.req.environ['PATH_INFO'] = self.req_environ_path
-            raise StopIteration
-        else:
-            fingerprint = self.fingerprints[self.fp_cur*self.fp_size:self.fp_cur*self.fp_size+self.fp_size]
-            self.fp_cur += 1
-
-        self.req.environ['PATH_INFO'] = os.path.dirname(self.req_environ_path)
-        self.req.environ['PATH_INFO'] = self.req.environ['PATH_INFO'] + '/' + fingerprint
-
-        self.controller.object_name = fingerprint
-        resp = self.controller.GETorHEAD(self.req)
-        return resp.body
-
     def __next__(self):
         if self.fp_cur >= self.fp_number:
             self.req.environ['PATH_INFO'] = self.req_environ_path

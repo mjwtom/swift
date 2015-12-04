@@ -2770,50 +2770,72 @@ class DeduplicationObjectController(BaseObjectController):
         obj_len = req.headers['Content-length']
         dedupe_ring = obj_ring
         #the data are segmented into chunks, so do not rely on the checksum from the object-sever
+        dc_rc = dict()
+        fp_dc = dict()
         etag_hasher = md5()
         fps = ''
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
-        while True:
-            try:
-                chunk = next(chunk_source)
-                ##state
-                self.dedupe.state.incre_total_chunk()
-                etag_hasher.update(chunk) # update the checksum
-                hash = self.dedupe.hash(chunk)
-                fp = hash.hexdigest()
-                fps += fp
-                ret = self.dedupe.lookup(fp)
-                if ret:
-                    self.dedupe.state.incre_dupe_chunk()
-                    continue
-                self.dedupe.insert_fp_index(fp, str(self.dedupe.container_count))
-                self.dedupe.container.add(fp, chunk)
-                if not self.dedupe.container.is_full():
-                    continue
-                # the container is full, we send it to different locations
-                data = self.dedupe.container.dumps()
-                partition, nodes = dedupe_ring.get_nodes(self.account_name,
-                                                        self.container_name, self.dedupe.container.get_name())
-                req.headers['Content-Length'] = str(len(data))
-                l = len(self.object_name)
-                tmp_pth = obj_path[:-l]
-                req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
-                 # check if object is set to be automatically deleted (i.e. expired)
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
+        for chunk in chunk_source:
+            self.dedupe.state.incre_total_chunk()
+            etag_hasher.update(chunk) # update the checksum
+            hash = self.dedupe.hash(chunk)
+            fp = hash.hexdigest()
+            fps += fp
+            dc = fp_dc.get(fp, None)
+            if not dc:
+                dc = self.dedupe.lookup(fp)
+            if dc:
+                # to migrate dedupe container, we need to know the reference for each one
+                self.dedupe.state.incre_dupe_chunk()
+                rc = dc_rc.get(dc, None)
+                if not rc:
+                    rc = self.dedupe.index.get_rc(dc)
+                    if rc:
+                        rc = int(rc)
+                    else:
+                        rc = 0
+                rc += 1
+                dc_rc[dc] = rc
+                continue
+            # self.dedupe.insert_fp_index(fp, self.dedupe.container.get_name())
+            self.dedupe.container.add(fp, chunk)
+            fp_dc[fp] = self.dedupe.container.get_name()
+            # update the reference count
+            rc = dc_rc.get(self.dedupe.container.get_name(), None)
+            if rc:
+                rc += 1
+            else:
+                rc = 1
+            dc_rc[self.dedupe.container.get_name()] = rc
+            if not self.dedupe.container.is_full():
+                continue
+            # the container is full, we send it to different locations
+            data = self.dedupe.container.dumps()
+            partition, nodes = dedupe_ring.get_nodes(self.account_name,
+                                                    self.container_name, self.dedupe.container.get_name())
+            req.headers['Content-Length'] = str(len(data))
+            l = len(self.object_name)
+            tmp_pth = obj_path[:-l]
+            req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
+             # check if object is set to be automatically deleted (i.e. expired)
+            req, delete_at_container, delete_at_part, \
+                delete_at_nodes = self._config_obj_expiration(req)
 
-                # add special headers to be handled by storage nodes
-                outgoing_headers = self._backend_requests(
-                    req, len(nodes), container_partition, container_nodes,
-                    delete_at_container, delete_at_part, delete_at_nodes)
-                data_iter = DataIter(data)
-                self._store_object(req, data_iter, nodes, partition, outgoing_headers)
+            # add special headers to be handled by storage nodes
+            outgoing_headers = self._backend_requests(
+                req, len(nodes), container_partition, container_nodes,
+                delete_at_container, delete_at_part, delete_at_nodes)
+            data_iter = DataIter(data)
+            self._store_object(req, data_iter, nodes, partition, outgoing_headers)
 
-                self.dedupe.container_count += 1
-                self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
-                                                        self.dedupe.dc_size)
-            except StopIteration:
-                break
+            self.dedupe.container_count += 1
+            self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
+                                                    self.dedupe.dc_size)
+
+        # insert the reference count into table
+        self.dedupe.index.batch_update_rc(dc_rc)
+        #insert the fingerprints into index
+        self.dedupe.bath_insert_fp(fp_dc)
 
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -2865,7 +2887,7 @@ class DeduplicationObjectController(BaseObjectController):
         app_iter = RespBodyIter(req, self)
         resp = app_iter.get_resp()
         resp.app_iter = app_iter
-        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name)[0].strip()
+        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name).strip()
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(

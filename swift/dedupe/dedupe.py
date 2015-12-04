@@ -49,3 +49,8 @@ class dedupe(object):
 
     def hash(self, data):
         return fingerprint(data)
+
+    def bath_insert_fp(self, fp_dc):
+        for fp in fp_dc:
+            self.bf.add(fp)
+        self.index.bath_insert_fp(fp_dc)
