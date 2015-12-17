@@ -60,6 +60,8 @@ from swift.common.storage_policy import get_policy_string
 from functools import partial
 get_data_dir = partial(get_policy_string, DATADIR_BASE)
 from swift.common.utils import mkdirs
+from swift.obj.compress import Compress
+from eventlet.queue import Queue
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -128,6 +130,9 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
+
+        self.compressor = Compress(self.get_diskfile)
+        self.compressor.start()
 
         default_allowed_headers = '''
             content-disposition,
@@ -717,6 +722,16 @@ class ObjectController(BaseStorageServer):
             'PUT', account, container, obj, request,
             update_headers,
             device, policy)
+        #mjwt: do the compression
+        info = dict(
+            device = device,
+            partition = partition,
+            account = account,
+            container = container,
+            object = obj,
+            policy = policy
+        )
+        self.compressor.compress_file(info)#self.compressor.put_into_queue(info)
         return HTTPCreated(request=request, etag=etag)
 
     @public
