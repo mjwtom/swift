@@ -2507,27 +2507,6 @@ class DeduplicationObjectController(BaseObjectController):
 
         return resp
 
-    def _dedupe_get_or_head_response(self, req, node_iter, partition, policy):
-
-        if req.method == 'HEAD':
-            # no fancy EC decoding here, just one plain old HEAD request to
-            # one object server because all fragments hold all metadata
-            # information about the object.
-            resp = self.GETorHEAD_base(
-                req, _('Object'), node_iter, partition,
-                req.swift_entity_path)
-        else:  # GET request
-            orig_range = None
-            range_specs = []
-            if req.range:
-                orig_range = req.range
-                range_specs = self._convert_range(req, policy)
-
-            req.range = orig_range
-            resp = Response(req)
-        self._fix_response(resp)
-        return resp
-
     def _connect_put_node(self, nodes, part, path, headers,
                           logger_thread_locals):
         """
@@ -2857,7 +2836,7 @@ class DeduplicationObjectController(BaseObjectController):
             delete_at_container, delete_at_part, delete_at_nodes)
         data_iter = DataIter(fps)
         resp = self._store_object(req, data_iter, nodes, partition, outgoing_headers)
-        resp.headers['etag'] = etag_hasher.hexdigest().strip()
+        resp.headers['Etag'] = etag_hasher.hexdigest().strip()
         self.dedupe.index.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
 
         return update_response(req, resp)
@@ -2887,7 +2866,8 @@ class DeduplicationObjectController(BaseObjectController):
         app_iter = RespBodyIter(req, self)
         resp = app_iter.get_resp()
         resp.app_iter = app_iter
-        resp.headers['etag'] = self.dedupe.index.lookup_etag(self.object_name).strip()
+        resp.headers['Etag'] = self.dedupe.index.lookup_etag(self.object_name).strip()
+        self._fix_response(resp)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(

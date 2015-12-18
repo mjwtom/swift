@@ -22,6 +22,7 @@ class Compress(threading.Thread):
         self.pool = ContextPool(self.thread_num)
         self.queue = Queue()
         self.logger = logger or get_logger(conf, log_route='object-server')
+        self.hc = bool(conf.get('lz4hc', False))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
         super(Compress, self).__init__(name = name)
 
@@ -107,12 +108,18 @@ class Compress(threading.Thread):
 
     def compress_file(self, info):
         metadata, data = self._get(info)
-        data = lz4.dumps(data)
+        if self.hc:
+            data = lz4.compressHC(data)
+        else:
+            data = lz4.dumps(data)
+        etag = md5(data)
         metadata['Content-Length'] = str(len(data))
-        metadata['Compressed'] = 'True'
+        metadata['X-Object-Sysmeta-Compressed'] = 'yes'
+        metadata['X-Object-Sysmeta-Lz4hc'] = str(self.hc)
+        metadata['Etag'] = etag.hexdigest()
         info['X-Timestamp'] = metadata.get('X-Timestamp', '0')
-        self._delete(info)
         metadata['X-Timestamp'] = Timestamp(time()).internal
+        self._delete(info)
         self._put(info, metadata, data)
 
     def run(self):

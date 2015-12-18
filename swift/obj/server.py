@@ -130,7 +130,8 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
-
+        #mjwtom: if compress the data
+        self.compress = bool(conf.get('compress', False))
         self.compressor = Compress(conf)
         self.compressor.start()
 
@@ -722,16 +723,17 @@ class ObjectController(BaseStorageServer):
             'PUT', account, container, obj, request,
             update_headers,
             device, policy)
-        #mjwt: do the compression
-        info = dict(
-            device = device,
-            partition = partition,
-            account = account,
-            container = container,
-            object = obj,
-            policy = policy
-        )
-        self.compressor.compress_file(info)#self.compressor.put_into_queue(info)
+        #mjwtom: if compress the data
+        if self.compress:
+            info = dict(
+                device = device,
+                partition = partition,
+                account = account,
+                container = container,
+                object = obj,
+                policy = policy
+            )
+            self.compressor.compress_file(info)#self.compressor.put_into_queue(info)
         return HTTPCreated(request=request, etag=etag)
 
     @public

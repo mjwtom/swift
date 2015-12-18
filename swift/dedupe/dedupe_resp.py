@@ -5,6 +5,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 
 import os
 from swift.dedupe.dedupe_container import DedupeContainer
+import lz4
 
 
 class RespBodyIter(object):
@@ -14,8 +15,11 @@ class RespBodyIter(object):
         self.dedupe = controller.dedupe
         self.req = req
         self.resp = controller.GETorHEAD(req)
-        self.fingerprints = self.resp.body
-        # self.fp_number = len(self.fingerprints) / 16
+        self.fingerprints = ''
+        for d in iter(self.resp.app_iter):
+            self.fingerprints += d
+        if self.resp.headers.get('X-Object-Sysmeta-Compressed'):
+            self.fingerprints = lz4.loads(self.fingerprints)
         self.fp_number = len(self.fingerprints) / 32
         self.fp_cur = 0
         self.fp_size = 32
@@ -50,7 +54,12 @@ class RespBodyIter(object):
 
         self.controller.object_name = container_id
         resp = self.controller.GETorHEAD(self.req)
-        dc_container.loads(resp.body)
+        data = ''
+        for d in iter(resp.app_iter):
+            data += d
+        if resp.headers.get('X-Object-Sysmeta-Compressed'):
+            data = lz4.loads(data)
+        dc_container.loads(data)
 
         dedupe.DC2Cache(container_id, dc_container)
 
