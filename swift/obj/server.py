@@ -131,7 +131,7 @@ class ObjectController(BaseStorageServer):
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
 
-        self.compressor = Compress(self.get_diskfile)
+        self.compressor = Compress(conf)
         self.compressor.start()
 
         default_allowed_headers = '''
