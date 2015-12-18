@@ -1,4 +1,4 @@
-from swift.common.utils import ContextPool, Timestamp
+from swift.common.utils import ContextPool, Timestamp, config_true_value
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
@@ -9,22 +9,22 @@ import lz4
 from hashlib import md5
 from time import time
 from eventlet.queue import Queue
-import threading
 
 '''
 use lz4 downloaded from https://github.com/steeve/python-lz4
 '''
 
 
-class Compress(threading.Thread):
-    def __init__(self, conf, logger = None, name='compressor', thread_num=16, queue_len = 50):
-        self.thread_num = thread_num
-        self.pool = ContextPool(self.thread_num)
-        self.queue = Queue()
+class Compress(object):
+    def __init__(self, conf, logger = None, thread_num=16, queue_len=None):
         self.logger = logger or get_logger(conf, log_route='object-server')
-        self.hc = bool(conf.get('lz4hc', False))
+        self.hc = config_true_value(conf.get('lz4hc', False))
+        self.async = config_true_value(conf.get('async_compress', True))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
-        super(Compress, self).__init__(name = name)
+        if self.async:
+            self.pool = ContextPool(thread_num+1)
+            self.queue = Queue(queue_len)
+            self.pool.spawn(self.run, self.queue)
 
     def get_diskfile(self, device, partition, account, container, obj,
                      policy, **kwargs):
@@ -122,11 +122,14 @@ class Compress(threading.Thread):
         self._delete(info)
         self._put(info, metadata, data)
 
-    def run(self):
+    def run(self, queue):
         while True:
-            info = self.queue.get()
-            self.compress_file(info)#self.pool.spawn(self.compress_file, info)
+            info = queue.get()
+            self.pool.spawn(self.compress_file, info)
         self.queue.task_done()
 
-    def put_into_queue(self, info):
-        self.queue.put(info)
+    def compress(self, info):
+        if self.async:
+            self.queue.put(info)
+        else:
+            self.compress_file(info)

@@ -132,8 +132,8 @@ class ObjectController(BaseStorageServer):
             config_true_value(conf.get('keep_cache_private', 'false'))
         #mjwtom: if compress the data
         self.compress = bool(conf.get('compress', False))
-        self.compressor = Compress(conf)
-        self.compressor.start()
+        if self.compress:
+            self.compressor = Compress(conf)
 
         default_allowed_headers = '''
             content-disposition,
@@ -733,7 +733,7 @@ class ObjectController(BaseStorageServer):
                 object = obj,
                 policy = policy
             )
-            self.compressor.compress_file(info)#self.compressor.put_into_queue(info)
+            self.compressor.compress(info)
         return HTTPCreated(request=request, etag=etag)
 
     @public

@@ -6,6 +6,7 @@ from swift.dedupe.pybloom.pybloom import BloomFilter
 from swift.dedupe.fingerprint import fingerprint
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.dedupe.state import DedupeState
+from swift.common.utils import config_true_value
 
 
 class dedupe(object):
@@ -14,7 +15,7 @@ class dedupe(object):
         self.dc_cache = DedupeCache(int(conf.get('dc_cache', 4)))
         self.index = fp_index(conf.get('data_base', ':memory:'))
         self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
-        self.fixed_chunk = bool(conf.get('fixed_chunk', False))
+        self.fixed_chunk = config_true_value(conf.get('fixed_chunk', False))
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.container_count = 0
         self.container = DedupeContainer(str(self.container_count), self.dc_size)
