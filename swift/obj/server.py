@@ -131,7 +131,7 @@ class ObjectController(BaseStorageServer):
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
         #mjwtom: if compress the data
-        self.compress = bool(conf.get('compress', False))
+        self.compress = config_true_value(conf.get('compress', 'false'))
         if self.compress:
             self.compressor = Compress(conf)
 

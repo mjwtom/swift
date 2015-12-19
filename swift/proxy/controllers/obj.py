@@ -2748,9 +2748,6 @@ class DeduplicationObjectController(BaseObjectController):
         obj_path = req.environ['PATH_INFO']
         obj_len = req.headers['Content-length']
         dedupe_ring = obj_ring
-        #the data are segmented into chunks, so do not rely on the checksum from the object-sever
-        dc_rc = dict()
-        fp_dc = dict()
         etag_hasher = md5()
         fps = ''
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
@@ -2760,32 +2757,13 @@ class DeduplicationObjectController(BaseObjectController):
             hash = self.dedupe.hash(chunk)
             fp = hash.hexdigest()
             fps += fp
-            dc = fp_dc.get(fp, None)
-            if not dc:
-                dc = self.dedupe.lookup(fp)
+            dc = self.dedupe.lookup(fp)
             if dc:
                 # to migrate dedupe container, we need to know the reference for each one
                 self.dedupe.state.incre_dupe_chunk()
-                rc = dc_rc.get(dc, None)
-                if not rc:
-                    rc = self.dedupe.index.get_rc(dc)
-                    if rc:
-                        rc = int(rc)
-                    else:
-                        rc = 0
-                rc += 1
-                dc_rc[dc] = rc
                 continue
-            # self.dedupe.insert_fp_index(fp, self.dedupe.container.get_name())
+            self.dedupe.insert_fp(fp, self.dedupe.container.get_name())
             self.dedupe.container.add(fp, chunk)
-            fp_dc[fp] = self.dedupe.container.get_name()
-            # update the reference count
-            rc = dc_rc.get(self.dedupe.container.get_name(), None)
-            if rc:
-                rc += 1
-            else:
-                rc = 1
-            dc_rc[self.dedupe.container.get_name()] = rc
             if not self.dedupe.container.is_full():
                 continue
             # the container is full, we send it to different locations
@@ -2810,11 +2788,6 @@ class DeduplicationObjectController(BaseObjectController):
             self.dedupe.container_count += 1
             self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
                                                     self.dedupe.dc_size)
-
-        # insert the reference count into table
-        self.dedupe.index.batch_update_rc(dc_rc)
-        #insert the fingerprints into index
-        self.dedupe.bath_insert_fp(fp_dc)
 
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)

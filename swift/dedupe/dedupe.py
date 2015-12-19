@@ -1,6 +1,6 @@
 __author__ = 'mjwtom'
 
-from swift.dedupe.fp_index import fp_index
+from swift.dedupe.fp_index import FingerprintIndex
 from swift.dedupe.cache import DedupeCache
 from swift.dedupe.pybloom.pybloom import BloomFilter
 from swift.dedupe.fingerprint import fingerprint
@@ -13,26 +13,28 @@ class dedupe(object):
     def __init__(self, conf):
         self.fp_cache = DedupeCache(int(conf.get('cache_size', 65536)))
         self.dc_cache = DedupeCache(int(conf.get('dc_cache', 4)))
-        self.index = fp_index(conf.get('data_base', ':memory:'))
         self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
-        self.fixed_chunk = config_true_value(conf.get('fixed_chunk', False))
+        self.fixed_chunk = config_true_value(conf.get('fixed_chunk', 'false'))
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.container_count = 0
         self.container = DedupeContainer(str(self.container_count), self.dc_size)
         self.state = DedupeState()
+        self.index = FingerprintIndex(conf)
 
     def lookup(self, key):
+        '''
         if not (key in self.bf):
             return None
         ret = self.fp_cache.get(key)
         if ret:
             return ret
-        ret = self.index.lookup_fp_index(key)
+        '''
+        ret = self.index.lookup_fp(key)
         return ret
 
-    def insert_fp_index(self, fp, container_id):
+    def insert_fp(self, fp, container_id):
         self.bf.add(fp)
-        self.index.insert_fp_index(fp, container_id)
+        self.index.insert_fp(fp, container_id)
 
     def insert_obj_fps(self, obj_hash, fps):
         self.index.insert_obj_fps(obj_hash, fps)
