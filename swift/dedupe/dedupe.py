@@ -22,13 +22,11 @@ class dedupe(object):
         self.index = FingerprintIndex(conf)
 
     def lookup(self, key):
-        '''
         if not (key in self.bf):
             return None
         ret = self.fp_cache.get(key)
         if ret:
             return ret
-        '''
         ret = self.index.lookup_fp(key)
         return ret
 

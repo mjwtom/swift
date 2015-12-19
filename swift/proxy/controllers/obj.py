@@ -81,6 +81,7 @@ from swift.dedupe.dedupe_container import DedupeContainer
 from swift.common.storage_policy import DEDUPE_POLICY
 from swift.dedupe.dedupe_resp import RespBodyIter
 from swift.dedupe.iter_data import DataIter
+import six.moves.cPickle as pickle
 
 
 def copy_headers_into(from_r, to_r):
@@ -2749,20 +2750,23 @@ class DeduplicationObjectController(BaseObjectController):
         obj_len = req.headers['Content-length']
         dedupe_ring = obj_ring
         etag_hasher = md5()
-        fps = ''
+        file_recipe = []
         chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
         for chunk in chunk_source:
             self.dedupe.state.incre_total_chunk()
             etag_hasher.update(chunk) # update the checksum
             hash = self.dedupe.hash(chunk)
             fp = hash.hexdigest()
-            fps += fp
             dc = self.dedupe.lookup(fp)
             if dc:
                 # to migrate dedupe container, we need to know the reference for each one
                 self.dedupe.state.incre_dupe_chunk()
+                data = (fp, dc)
+                file_recipe.append(data)
                 continue
             self.dedupe.insert_fp(fp, self.dedupe.container.get_name())
+            data = (fp, self.dedupe.container.get_name())
+            file_recipe.append(data)
             self.dedupe.container.add(fp, chunk)
             if not self.dedupe.container.is_full():
                 continue
@@ -2797,7 +2801,8 @@ class DeduplicationObjectController(BaseObjectController):
             return HTTPNotFound()
 
         #update the req
-        req.headers['Content-Length'] = str(len(fps))
+        data = pickle.dumps(file_recipe)
+        req.headers['Content-Length'] = str(len(data))
         req.environ['PATH_INFO'] = obj_path
          # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
@@ -2807,7 +2812,7 @@ class DeduplicationObjectController(BaseObjectController):
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes)
-        data_iter = DataIter(fps)
+        data_iter = DataIter(data)
         resp = self._store_object(req, data_iter, nodes, partition, outgoing_headers)
         resp.headers['Etag'] = etag_hasher.hexdigest().strip()
         self.dedupe.index.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check

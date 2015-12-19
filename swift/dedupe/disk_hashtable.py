@@ -35,10 +35,18 @@ class DiskHashtable(object):
             os.makedirs(self.disk_hash_dir)
         path = self.disk_hash_dir + '/' + str(bucket_num)
         data = pickle.dumps(self.memory_bucket[bucket_num])
-        with open(path, 'ab') as f:
-            if self.direct_io:
-                f.write(data)
-            else:
+        if self.direct_io:
+            f = os.open(path, os.O_CREAT | os.O_APPEND | os.O_RDWR | os.O_DIRECT)
+            ll = 512 - len(data)%512 # alligned by 512
+            data += '\0'*ll
+            try:
+                write(f, data)
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'ab') as f:
                 f.write(data)
         self.bucket_lens[bucket_num].append(len(data))
         self.memory_bucket[bucket_num] = dict()
@@ -54,14 +62,25 @@ class DiskHashtable(object):
         path = self.disk_hash_dir + '/' + str(k)
         if not os.path.exists(path):
             return None
-        with open(path, 'rb') as f:
-            for len in self.bucket_lens[k]:
-                if self.direct_io:
-                    data = f.read(len)
-                else:
-                    data = f.read(len)
-                data = pickle.loads(data)
-                r = data.get(key, None)
-                if r:
-                    return r
+        if self.direct_io:
+            f = os.open(path, os.O_RDONLY | os.O_DIRECT)
+            try:
+                for ll in self.bucket_lens[k]:
+                    data = read(f, ll)
+                    data = pickle.loads(data)
+                    r = data.get(key, None)
+                    if r:
+                        return r
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'rb') as f:
+                for ll in self.bucket_lens[k]:
+                    data = f.read(ll)
+                    data = pickle.loads(data)
+                    r = data.get(key, None)
+                    if r:
+                        return r
         return None
