@@ -3,13 +3,14 @@ import six.moves.cPickle as pickle
 
 class DedupeContainer(object):
 
-    def __init__(self, name=None, size=4096):
-        self.kv = {'name': name, 'size': size, 'len': 0}
+    def __init__(self, id=None, size=4096):
+        self.kv = dict()
+        self.id = id
+        self.size = size
 
     def add(self, fp, chunk):
-        if self.kv['len'] < self.kv['size']:
+        if len(self.kv) < self.size:
             self.kv[fp] = chunk
-            self.kv['len'] += 1
             return True
         else:
             return False
@@ -18,23 +19,21 @@ class DedupeContainer(object):
         return self.kv.get(key, None)
 
     def is_full(self):
-        len = self.kv.get('len', None)
-        size = self.kv.get('size', None)
-        return len >= size
+        return len(self.kv) >= self.size
 
     def size(self):
-        return self.kv.get('size', None)
+        return self.size
 
     def len(self):
-        return self.kv.get('len', None)
+        return len(self.kv)
 
     def dumps(self):
         data = pickle.dumps(self.kv)
         return data
 
-    def get_name(self):
-        name = self.kv.get('name', None)
-        return name
+    def get_id(self):
+        return self.id
 
     def loads(self, data):
         self.kv = pickle.loads(data)
+        self.size = len(self.kv)

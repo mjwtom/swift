@@ -43,7 +43,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
 from swift.common.exceptions import APIVersionError
 
 #mjw dedupe
-from swift.dedupe.dedupe import dedupe
+from swift.dedupe.deduplication import ChunkStore, InformationDatabase
 
 
 # List of entry points for mandatory middlewares.
@@ -88,8 +88,12 @@ class Application(object):
 
         self._error_limiting = {}
 
-        #mjw: get the index file (currently we use SQLite) though very slow
-        self.dedupe=dedupe(conf)
+        #mjwtom: deduplication
+        self.deduplication = config_true_value(conf.get('deduplication', 'false'))
+        if self.deduplication:
+            self.chunk_store = ChunkStore(conf, self)
+            self.info_database = InformationDatabase(conf)
+            self.fixed_chunk = config_true_value(conf.get('fixed_chunk', 'false'))
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir

@@ -75,13 +75,12 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 
 
 #mjw dedupe
-import os
 from swift.dedupe.chunk import chunkIter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.common.storage_policy import DEDUPE_POLICY
 from swift.dedupe.dedupe_resp import RespBodyIter
-from swift.dedupe.iter_data import DataIter
 import six.moves.cPickle as pickle
+from swift.common.swob import WsgiBytesIO
 
 
 def copy_headers_into(from_r, to_r):
@@ -2484,12 +2483,6 @@ class ECObjectController(BaseObjectController):
 @ObjectControllerRouter.register(DEDUPE_POLICY)
 class DeduplicationObjectController(BaseObjectController):
 
-    def __init__(self, app, account_name, container_name, object_name,
-                 **kwargs):
-        BaseObjectController.__init__(self, app, account_name, container_name, object_name,
-                                      **kwargs)
-        self.dedupe = app.dedupe
-
     def _get_or_head_response(self, req, node_iter, partition, policy):
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
@@ -2745,65 +2738,21 @@ class DeduplicationObjectController(BaseObjectController):
             data_source = iter(reader, '')
             update_response = lambda req, resp: resp
 
-        #backup the length and path
-        obj_path = req.environ['PATH_INFO']
-        obj_len = req.headers['Content-length']
-        dedupe_ring = obj_ring
         etag_hasher = md5()
         file_recipe = []
-        chunk_source = chunkIter(data_source, self.dedupe.fixed_chunk)
+        chunk_store = self.app.chunk_store
+        info_db = self.app.info_database
+        fixed_chunk = self.app.fixed_chunk
+        chunk_source = chunkIter(data_source, fixed_chunk)
         for chunk in chunk_source:
-            self.dedupe.state.incre_total_chunk()
             etag_hasher.update(chunk) # update the checksum
-            hash = self.dedupe.hash(chunk)
-            fp = hash.hexdigest()
-            dc = self.dedupe.lookup(fp)
-            if dc:
-                # to migrate dedupe container, we need to know the reference for each one
-                self.dedupe.state.incre_dupe_chunk()
-                data = (fp, dc)
-                file_recipe.append(data)
-                continue
-            self.dedupe.insert_fp(fp, self.dedupe.container.get_name())
-            data = (fp, self.dedupe.container.get_name())
-            file_recipe.append(data)
-            self.dedupe.container.add(fp, chunk)
-            if not self.dedupe.container.is_full():
-                continue
-            # the container is full, we send it to different locations
-            data = self.dedupe.container.dumps()
-            partition, nodes = dedupe_ring.get_nodes(self.account_name,
-                                                    self.container_name, self.dedupe.container.get_name())
-            req.headers['Content-Length'] = str(len(data))
-            l = len(self.object_name)
-            tmp_pth = obj_path[:-l]
-            req.environ['PATH_INFO'] = tmp_pth+ self.dedupe.container.get_name()
-             # check if object is set to be automatically deleted (i.e. expired)
-            req, delete_at_container, delete_at_part, \
-                delete_at_nodes = self._config_obj_expiration(req)
+            fp = chunk_store.hash(chunk)
+            chunk_store.put(fp, chunk, self, req)
+            file_recipe.append(fp)
 
-            # add special headers to be handled by storage nodes
-            outgoing_headers = self._backend_requests(
-                req, len(nodes), container_partition, container_nodes,
-                delete_at_container, delete_at_part, delete_at_nodes)
-            data_iter = DataIter(data)
-            self._store_object(req, data_iter, nodes, partition, outgoing_headers)
-
-            self.dedupe.container_count += 1
-            self.dedupe.container = DedupeContainer(str(self.dedupe.container_count),
-                                                    self.dedupe.dc_size)
-
-        partition, nodes = obj_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-        if not nodes:
-            return HTTPNotFound()
-
-        #update the req
         data = pickle.dumps(file_recipe)
         req.headers['Content-Length'] = str(len(data))
-        req.environ['PATH_INFO'] = obj_path
+
          # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
@@ -2812,11 +2761,88 @@ class DeduplicationObjectController(BaseObjectController):
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes)
-        data_iter = DataIter(data)
-        resp = self._store_object(req, data_iter, nodes, partition, outgoing_headers)
+        req.environ['wsgi.input'] = WsgiBytesIO(data)
+        data_source = iter(reader, '')
+        resp = self._store_object(req, data_source, nodes, partition, outgoing_headers)
         resp.headers['Etag'] = etag_hasher.hexdigest().strip()
-        self.dedupe.index.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
+        info_db.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
 
+        return update_response(req, resp)
+
+    @public
+    @cors_validation
+    @delay_denial
+    def store_container(self, req):
+        """HTTP PUT request handler."""
+        if req.if_none_match is not None and '*' not in req.if_none_match:
+            # Sending an etag with if-none-match isn't currently supported
+            return HTTPBadRequest(request=req, content_type='text/plain',
+                                  body='If-None-Match only supports *')
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+
+        obj_ring = self.app.get_object_ring(policy_index)
+        container_nodes = container_info['nodes']
+        container_partition = container_info['partition']
+        partition, nodes = obj_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
+
+        # pass the policy index to storage nodes via req header
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        req.acl = container_info['write_acl']
+        req.environ['swift_sync_key'] = container_info['sync_key']
+
+        # is request authorized
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
+
+        if not container_info['nodes']:
+            return HTTPNotFound(request=req)
+
+        # update content type in case it is missing
+        self._update_content_type(req)
+
+        # check constraints on object name and request headers
+        error_response = check_object_creation(req, self.object_name) or \
+            check_content_type(req)
+        if error_response:
+            return error_response
+
+        self._update_x_timestamp(req)
+
+        # check if request is a COPY of an existing object
+        source_header = req.headers.get('X-Copy-From')
+        if source_header:
+            error_response, req, data_source, update_response = \
+                self._handle_copy_request(req)
+            if error_response:
+                return error_response
+        else:
+            def reader():
+                try:
+                    return req.environ['wsgi.input'].read(
+                        self.app.client_chunk_size)
+                except (ValueError, IOError) as e:
+                    raise ChunkReadError(str(e))
+            data_source = iter(reader, '')
+            update_response = lambda req, resp: resp
+
+        # check if object is set to be automatically deleted (i.e. expired)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
+
+        # add special headers to be handled by storage nodes
+        outgoing_headers = self._backend_requests(
+            req, len(nodes), container_partition, container_nodes,
+            delete_at_container, delete_at_part, delete_at_nodes)
+
+        # send object to storage nodes
+        resp = self._store_object(
+            req, data_source, nodes, partition, outgoing_headers)
         return update_response(req, resp)
 
     @public
