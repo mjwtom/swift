@@ -44,13 +44,13 @@ class DatabaseTable(object):
 
 class DiskHashTable(object):
     def __init__(self, conf):
-        self.index_len = int(conf.get('disk_hash_table_index_len', 1024))
+        self.index_size = int(conf.get('disk_hash_table_index_size', 1024))
         self.direct_io = config_true_value(conf.get('disk_hash_table_directio', 'false'))
         self.disk_hash_dir = conf.get('disk_hash_table_dir', '/tmp/swift-disk-hash/')
-        self.flus_num = int(conf.get('disk_hash_table_flush_num', 1024))
+        self.flus_size = int(conf.get('disk_hash_table_flush_size', 1024))
         self.memory_bucket = []
         self.bucket_lens = []
-        for _ in range(self.index_len):
+        for _ in range(self.index_size):
             self.memory_bucket.append(dict())
             self.bucket_lens.append([])
         if config_true_value(conf.get('clean_disk_hash', 'false')):
@@ -61,20 +61,20 @@ class DiskHashTable(object):
         h = md5(key)
         h = h.hexdigest()
         k = int(h.upper(), 16)
-        k %= self.index_len
+        k %= self.index_size
         return k
 
     def add(self, key, value):
         k = self._map_bucket(key)
         self.memory_bucket[k][key] = value
-        if len(self.memory_bucket[k]) >= self.flus_num:
+        if len(self.memory_bucket[k]) >= self.flus_size:
             self.flush(k)
 
-    def flush(self, bucket_num):
+    def flush(self, bucket_index):
         if not os.path.exists(self.disk_hash_dir):
             os.makedirs(self.disk_hash_dir)
-        path = self.disk_hash_dir + '/' + str(bucket_num)
-        data = pickle.dumps(self.memory_bucket[bucket_num])
+        path = self.disk_hash_dir + '/' + str(bucket_index)
+        data = pickle.dumps(self.memory_bucket[bucket_index])
         if self.direct_io:
             f = os.open(path, os.O_CREAT | os.O_APPEND | os.O_RDWR | os.O_DIRECT)
             ll = 512 - len(data)%512 # alligned by 512
@@ -88,8 +88,8 @@ class DiskHashTable(object):
         else:
             with open(path, 'ab') as f:
                 f.write(data)
-        self.bucket_lens[bucket_num].append(len(data))
-        self.memory_bucket[bucket_num] = dict()
+        self.bucket_lens[bucket_index].append(len(data))
+        self.memory_bucket[bucket_index] = dict()
 
     def get(self, key):
         k = self._map_bucket(key)
@@ -128,6 +128,7 @@ class LazyHashTable(DiskHashTable):
         DiskHashTable.__init__(self, conf)
         self.lazy_bucket_size = int(conf.get('lazy_bucket_size', 16))
         self.lazy_bucket = []
+        self.buffer = set()
         for _ in range(self.index_len):
             self.lazy_bucket.append([])
 

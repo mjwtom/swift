@@ -4,16 +4,14 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 '''
 
 import six.moves.cPickle as pickle
-from swift.dedupe.dedupe_container import DedupeContainer
 import lz4
 
 
 class RespBodyIter(object):
-    def __init__(self, req, controller):
+    def __init__(self, chunk_store, req, controller):
         self.controller = controller
-        self.object_name = controller.object_name
-        self.dedupe = controller.dedupe
         self.req = req
+        self.chunk_store = chunk_store
         self.resp = controller.GETorHEAD(req)
         self.file_recipe = ''
         for d in iter(self.resp.app_iter):
@@ -31,42 +29,10 @@ class RespBodyIter(object):
             self.req.environ['PATH_INFO'] = self.req_environ_path
             raise StopIteration
         else:
-            fp, dc = self.file_recipe.pop(0)
-        dedupe = self.dedupe
-        dedupe.state.incre_download_chunk()
+            fp = self.file_recipe.pop(0)
 
-        if dc == str(dedupe.container_count):
-            r = dedupe.container.kv.get(fp, None)
-            if r:
-                return r
+        return self.chunk_store.get(fp, self.controller, self.req)
 
-        dc_container = dedupe.DCFromCache(dc)
-        if dc_container:
-            r = dc_container.kv.get(fp, None)
-            if r:
-                return r
-
-        l = len(self.object_name)
-        tmp_pth = self.req_environ_path[:-l]
-        self.req.environ['PATH_INFO'] = tmp_pth+ str(dc)
-
-        dc_container = DedupeContainer(dc)
-
-        self.controller.object_name = dc
-        resp = self.controller.GETorHEAD(self.req)
-        data = ''
-        for d in iter(resp.app_iter):
-            data += d
-        if resp.headers.get('X-Object-Sysmeta-Compressed'):
-            data = lz4.loads(data)
-        dc_container.loads(data)
-
-        dedupe.DC2Cache(dc, dc_container)
-
-        r = dc_container.kv.get(fp, None)
-        if r:
-            return r
-        return None
 
     def next(self):
         return self.__next__()

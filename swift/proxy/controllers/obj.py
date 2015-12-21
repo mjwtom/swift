@@ -2856,21 +2856,17 @@ class DeduplicationObjectController(BaseObjectController):
         # pass the policy index to storage nodes via req header
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
-        policy = POLICIES.get_by_index(policy_index)
         obj_ring = self.app.get_object_ring(policy_index)
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        partition = obj_ring.get_part(
-            self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition)
 
-        app_iter = RespBodyIter(req, self)
+        app_iter = RespBodyIter(self.app.chunk_store, req, self)
         resp = app_iter.get_resp()
         resp.app_iter = app_iter
-        resp.headers['Etag'] = self.dedupe.index.lookup_etag(self.object_name).strip()
+        resp.headers['Etag'] = self.app.info_database.lookup_etag(self.object_name).strip()
         self._fix_response(resp)
 
         if ';' in resp.headers.get('content-type', ''):

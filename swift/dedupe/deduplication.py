@@ -1,4 +1,3 @@
-from swift.dedupe.cache import DedupeCache
 from swift.dedupe.pybloom.pybloom import BloomFilter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.dedupe.state import DedupeState
@@ -9,6 +8,8 @@ import sqlite3
 from disk_index import DatabaseTable, DiskHashTable, LazyHashTable
 from swift.common.wsgi import make_env
 from swift.common.swob import WsgiBytesIO
+from lru import LRU
+import lz4
 
 
 class ChunkStore(object):
@@ -19,8 +20,8 @@ class ChunkStore(object):
         self.chunk_store_version = conf.get('chunk_store_version', 'v1')
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
-        self.fp_cache = DedupeCache(int(conf.get('cache_size', 65536)))
-        self.dc_cache = DedupeCache(int(conf.get('dc_cache', 4)))
+        self.fp_cache = LRU(int(conf.get('cache_size', 65536)))
+        self.dc_cache = LRU(int(conf.get('dc_cache', 4)))
         self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.state = DedupeState()
@@ -58,12 +59,11 @@ class ChunkStore(object):
         for f in fingerprints:
             self.fp_cache.put(f, '0000')
 
-    def DCFromCache(self, key):
-        dc = self.dc_cache.get(key)
-        return dc
+    def _add2cache(self, cache, key, value):
+        cache[key] = value
 
-    def DC2Cache(self, key, dc):
-        self.dc_cache.put(key, dc)
+    def _get_from_cache(self, cache, key):
+        return cache[key]
 
     def hash(self, data):
         return md5(data).hexdigest()
@@ -132,9 +132,9 @@ class ChunkStore(object):
 
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
-            if self.fp_cache.get(fp):
+            if self.fp_cache[fp]:
                 return
-            if self.index.lookup(fp):
+            if self.index.get(fp):
                 return
         self.bf.add(fp)
         self.container.add(fp, chunk)
@@ -153,12 +153,55 @@ class ChunkStore(object):
         else:
             self._eager_dedupe(fp, chunk)
 
-    def get(self, fp):
-        #TODO get a chunk according to the fingerprint
+    def _sqlite_get(self, fp):
+        return self._eager_get(fp)
+
+    def _eager_get(self, fp):
+        r = self.container.get(fp)
+        if r:
+            return r
+        for dc_id, dc in self.dc_cache.items():
+            r = dc.get(fp)
+            if r:
+                return r
+        dc_id = self.index.get(fp)
+
+        req = self._dupl_req(self.req, dc_id, None, 0)
+
+        obj_name = self.object_controller.object_name
+        self.object_controller.object_name = dc_id
+        resp = self.object_controller.GETorHEAD(req)
+        self.object_controller.object_name = obj_name
+
+
+        dc_container = DedupeContainer(dc_id)
+
+        data = ''
+        for d in iter(resp.app_iter):
+            data += d
+        if resp.headers.get('X-Object-Sysmeta-Compressed'):
+            data = lz4.loads(data)
+        dc_container.loads(data)
+
+        self._add2cache(self.dc_cache, dc_id, dc_container)
+
+        return dc_container.get(fp)
+
+    def _lazy_get(self, fp):
         pass
 
+    def get(self, fp, controller, req):
+        self.object_controller = controller
+        self.req = req
+        if self.sqlite_index:
+            return self._sqlite_get(fp)
+            pass # TODO: get a chunk in lazy deduplication
+        elif self.lazy_dedupe:
+            return self._lazy_get(fp)
+        else:
+            return self._eager_get(fp)
+
     def get_coutainer_id(self, fp):
-        #TODO get the deduplication container id according to the given fingerprint
         pass
 
     def put_in_lazy_buffer(self, fp, ):
