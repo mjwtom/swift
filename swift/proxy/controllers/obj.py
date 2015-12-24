@@ -75,8 +75,7 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 
 
 #mjw dedupe
-from swift.dedupe.chunk import chunkIter
-from swift.dedupe.dedupe_container import DedupeContainer
+from swift.dedupe.chunk import ChunkIter
 from swift.common.storage_policy import DEDUPE_POLICY
 from swift.dedupe.dedupe_resp import RespBodyIter
 import six.moves.cPickle as pickle
@@ -2743,7 +2742,7 @@ class DeduplicationObjectController(BaseObjectController):
         chunk_store = self.app.chunk_store
         info_db = self.app.info_database
         fixed_chunk = self.app.fixed_chunk
-        chunk_source = chunkIter(data_source, fixed_chunk)
+        chunk_source = ChunkIter(data_source, fixed_chunk)
         for chunk in chunk_source:
             etag_hasher.update(chunk) # update the checksum
             fp = chunk_store.hash(chunk)

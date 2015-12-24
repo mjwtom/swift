@@ -10,6 +10,8 @@ from swift.common.wsgi import make_env
 from swift.common.swob import WsgiBytesIO
 from lru import LRU
 import lz4
+import os
+import six.moves.cPickle as pickle
 
 
 class ChunkStore(object):
@@ -27,6 +29,7 @@ class ChunkStore(object):
         self.state = DedupeState()
         self.next_dc_id = int(conf.get('next_dc_id', 0))
         self.new_container()
+        self.container_fp_dir = conf.get('dedupe_container_fp_dir', '/tmp/swift/container_fp/')
         self.sqlite_index = config_true_value(conf.get('sqlite_index', 'false'))
         if self.sqlite_index:
             self.index = DatabaseTable(conf)
@@ -36,34 +39,18 @@ class ChunkStore(object):
                 self.index = LazyHashTable(conf)
                 self.lazy_max_unique = int(conf.get('lazy_max_unique', 200))
                 self.lazy_max_fetch = int(conf.get('lazy_max_fetch', self.dc_size))
+                self.dup_cluster_set = set()
+                self.dup_cluster = dict()
+                self.dup_cluster_set.add(self.dup_cluster)
+                self.current_continue_dup = 0
             else:
                 self.index = DiskHashTable(conf)
-
-    def lookup(self, key):
-        if not (key in self.bf):
-            return None
-        ret = self.fp_cache.get(key)
-        if ret:
-            return ret
-        ret = self.index.lookup_fp(key)
-        return ret
-
-    def insert_fp(self, fp, container_id):
-        self.bf.add(fp)
-        self.index.insert_fp(fp, container_id)
-
-    def insert_obj_fps(self, obj_hash, fps):
-        self.index.insert_obj_fps(obj_hash, fps)
-
-    def load2cache(self, fingerprints):
-        for f in fingerprints:
-            self.fp_cache.put(f, '0000')
 
     def _add2cache(self, cache, key, value):
         cache[key] = value
 
     def _get_from_cache(self, cache, key):
-        return cache[key]
+        return cache.get(key)
 
     def hash(self, data):
         return md5(data).hexdigest()
@@ -71,6 +58,25 @@ class ChunkStore(object):
     def new_container(self):
         self.container = DedupeContainer(str(self.next_dc_id), self.dc_size)
         self.next_dc_id += 1
+
+    def _store_container_fp(self, container):
+        if not os.path.exists(self.container_fp_dir):
+            os.makedirs(self.container_fp_dir)
+        path = self.container_fp_dir + '/' + container.get_id()
+        fps = container.get_fps()
+        with open(path, 'wb') as f:
+            pickle.dump(fps, f)
+
+    def _load_container_fp(self, container_id):
+        path = self.container_fp_dir + '/' + container_id
+        with open(path, 'rb') as f:
+            fps = pickle.load(f)
+        return fps
+
+    def _fill_cache_with_container_fp(self, container_id):
+        fps = self._load_container_fp(container_id)
+        for fp in fps:
+            self._add2cache(self.fp_cache, fp, container_id)
 
     #FIXME: this is tmperal method to duplicate a req and change something
     def _dupl_req(self, req, obj_name, data_source, data_len):
@@ -116,6 +122,16 @@ class ChunkStore(object):
             pass
         del resp
 
+    def store(self, fp, chunk):
+        container_id = self.container.get_id()
+        self.container.add(fp, chunk)
+        if self.container.is_full():
+            full_container = self.container
+            self.new_container()
+            self._store_container_fp(full_container)
+            self._store_container(full_container)
+        return container_id
+
     def _lazy_dedupe(self, fp, chunk):
         '''
         Deduplicate the chunk using the given fingerprint
@@ -128,22 +144,48 @@ class ChunkStore(object):
         '''
         if not fp in self.bf:
             self.container.add(fp, chunk)
+            container_id = self.container.get_id()
+            self.index.put(fp, container_id)
+            container_id = self.store(fp, chunk)
+            self.index.put(fp, container_id)
             return
+        self.current_continue_dup += 1
+        if self._get_from_cache(self.fp_cache, fp):
+            return
+        if self.current_continue_dup >= self.lazy_max_fetch:
+            self.dup_cluster = dict()
+            self.dup_cluster_set.add(self.dup_cluster)
+            self.current_continue_dup = 0
+        self.dup_cluster[fp] = chunk
+        self.index.buf(fp, self.dup_cluster)
+
+    def lazy_callback(self, result):
+        load_container_set = set()
+        for fp, cluster, container_id in result:
+            if container_id:
+                if not container_id in load_container_set:
+                    self._load_container_fp(container_id)
+                    load_container_set.add(container_id)
+                for fp, chunk in cluster.iterms():
+                    if self._get_from_cache(self.fp_cache, fp):
+                        del cluster[fp]
+            else:
+                chunk = cluster.get(fp)
+                del cluster[fp]
+                container_id = self.store(fp, chunk)
+                self.index.put(fp, container_id)
 
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
-            if self.fp_cache[fp]:
+            if self._get_from_cache(self.fp_cache, fp):
                 return
-            if self.index.get(fp):
+            container_id = self.index.get(fp)
+            if container_id:
+                self._fill_cache_with_container_fp(container_id)
                 return
         self.bf.add(fp)
-        self.container.add(fp, chunk)
-        container_id = self.container.get_id()
-        self.index.add(fp, container_id)
-        if self.container.is_full():
-            full_container = self.container
-            self.new_container()
-            self._store_container(full_container)
+        container_id = self.store(fp, chunk)
+        self.index.put(fp, container_id)
 
     def put(self, fp, chunk, obj_controller, req):
         self.object_controller = obj_controller
@@ -202,10 +244,6 @@ class ChunkStore(object):
             return self._eager_get(fp)
 
     def get_coutainer_id(self, fp):
-        pass
-
-    def put_in_lazy_buffer(self, fp, ):
-        #TODO: lazy method implementation
         pass
 
 

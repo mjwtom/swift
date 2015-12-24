@@ -21,7 +21,7 @@ class DatabaseTable(object):
     def __del__(self):
         self.conn.close()
 
-    def add(self, fp, container_id):
+    def put(self, fp, container_id):
         self.fp_buf[fp] = container_id
         if len(self.fp_buf) >= self.db_max_buf:
             for fp, container_id in self.fp_buf.items():
@@ -46,7 +46,7 @@ class DiskHashTable(object):
     def __init__(self, conf):
         self.index_size = int(conf.get('disk_hash_table_index_size', 1024))
         self.direct_io = config_true_value(conf.get('disk_hash_table_directio', 'false'))
-        self.disk_hash_dir = conf.get('disk_hash_table_dir', '/tmp/swift-disk-hash/')
+        self.disk_hash_dir = conf.get('disk_hash_table_dir', '/tmp/swift/disk-hash/')
         self.flus_size = int(conf.get('disk_hash_table_flush_size', 1024))
         self.memory_bucket = []
         self.bucket_lens = []
@@ -64,7 +64,7 @@ class DiskHashTable(object):
         k %= self.index_size
         return k
 
-    def add(self, key, value):
+    def put(self, key, value):
         k = self._map_bucket(key)
         self.memory_bucket[k][key] = value
         if len(self.memory_bucket[k]) >= self.flus_size:
@@ -124,27 +124,22 @@ class DiskHashTable(object):
 
 
 class LazyHashTable(DiskHashTable):
-    def __init__(self, conf):
+    def __init__(self, conf, callback= None):
         DiskHashTable.__init__(self, conf)
         self.lazy_bucket_size = int(conf.get('lazy_bucket_size', 16))
         self.lazy_bucket = []
+        self.callback = callback
         self.buffer = set()
-        for _ in range(self.index_len):
-            self.lazy_bucket.append([])
+        for _ in range(self.index_size):
+            self.lazy_bucket.append(dict())
 
     def _lookup_in_bucket(self, k, bucket):
         result = []
-        pop = []
-        i = 0
-        for fp, v in self.lazy_bucket[k]:
+        for fp, v in self.lazy_bucket[k].items():
             r = bucket.get(fp, None)
             if r:
-                pop.append(i)
-                result.append((fp, v, r))
-            i += 1
-        pop.reverse()
-        for i in pop:
-            self.lazy_bucket[k].pop(i)
+                result.append((fp, r, v))
+                del self.lazy_bucket[k][fp]
         return result
 
     def lazy_lookup(self, k):
@@ -175,6 +170,9 @@ class LazyHashTable(DiskHashTable):
                         result += self._lookup_in_bucket(k, data)
         return result
 
-    def put(self, fp, value):
+    def buf(self, fp, value):
         k = self._map_bucket(fp)
-        self.lazy_bucket[k].append((fp, value))
+        self.lazy_bucket[k][fp] = value
+        if len(self.lazy_bucket[k]) >= self.lazy_bucket_size:
+            result = self.lazy_lookup(k)
+            self.callback(result)
