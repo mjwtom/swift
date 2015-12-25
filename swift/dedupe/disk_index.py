@@ -153,10 +153,11 @@ class LazyHashTable(DiskHashTable):
             f = os.open(path, os.O_RDONLY | os.O_DIRECT)
             try:
                 for ll in self.bucket_lens[k]:
-                    if self.lazy_bucket[k]:
-                        data = read(f, ll)
-                        data = pickle.loads(data)
-                        result += self._lookup_in_bucket(k, data)
+                    if not self.lazy_bucket[k]:
+                        break
+                    data = read(f, ll)
+                    data = pickle.loads(data)
+                    result += self._lookup_in_bucket(k, data)
             except Exception as e:
                 pass
             finally:
@@ -164,15 +165,22 @@ class LazyHashTable(DiskHashTable):
         else:
             with open(path, 'rb') as f:
                 for ll in self.bucket_lens[k]:
-                    if self.lazy_bucket[k]:
-                        data = f.read(ll)
-                        data = pickle.loads(data)
-                        result += self._lookup_in_bucket(k, data)
+                    if not self.lazy_bucket[k]:
+                        break
+                    data = f.read(ll)
+                    data = pickle.loads(data)
+                    result += self._lookup_in_bucket(k, data)
+        for fp, v in self.lazy_bucket[k].items():
+            result.append((fp, None, v))
         return result
 
     def buf(self, fp, value):
         k = self._map_bucket(fp)
-        self.lazy_bucket[k][fp] = value
+        if fp not in self.lazy_bucket[k]:
+            self.lazy_bucket[k][fp] = [value]
+        else:
+            if value not in self.lazy_bucket[k][fp]:
+                self.lazy_bucket[k][fp].append(value)
         if len(self.lazy_bucket[k]) >= self.lazy_bucket_size:
             result = self.lazy_lookup(k)
             self.callback(result)

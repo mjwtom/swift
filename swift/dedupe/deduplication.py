@@ -12,6 +12,7 @@ from lru import LRU
 import lz4
 import os
 import six.moves.cPickle as pickle
+from directio import read, write
 
 
 class ChunkStore(object):
@@ -19,6 +20,7 @@ class ChunkStore(object):
         self.app = app
         self.object_controller = None
         self.req = None
+        self.direct_io = config_true_value(conf.get('load_fp_directio', 'false'))
         self.chunk_store_version = conf.get('chunk_store_version', 'v1')
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
@@ -36,12 +38,12 @@ class ChunkStore(object):
         else:
             self.lazy_dedupe = config_true_value(conf.get('lazy_dedupe', 'true'))
             if self.lazy_dedupe:
-                self.index = LazyHashTable(conf)
+                self.index = LazyHashTable(conf, self.lazy_callback)
                 self.lazy_max_unique = int(conf.get('lazy_max_unique', 200))
                 self.lazy_max_fetch = int(conf.get('lazy_max_fetch', self.dc_size))
-                self.dup_cluster_set = set()
+                self.dup_cluster_set = []
                 self.dup_cluster = dict()
-                self.dup_cluster_set.add(self.dup_cluster)
+                self.dup_cluster_set.append(self.dup_cluster)
                 self.current_continue_dup = 0
             else:
                 self.index = DiskHashTable(conf)
@@ -64,13 +66,36 @@ class ChunkStore(object):
             os.makedirs(self.container_fp_dir)
         path = self.container_fp_dir + '/' + container.get_id()
         fps = container.get_fps()
-        with open(path, 'wb') as f:
-            pickle.dump(fps, f)
+        data = pickle.dumps(fps)
+        if self.direct_io:
+            f = os.open(path, os.O_CREAT | os.O_APPEND | os.O_RDWR | os.O_DIRECT)
+            ll = 512 - len(data)%512 # alligned by 512
+            data += '\0'*ll
+            try:
+                write(f, data)
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'wb') as f:
+                pickle.dump(fps, f)
 
     def _load_container_fp(self, container_id):
         path = self.container_fp_dir + '/' + container_id
-        with open(path, 'rb') as f:
-            fps = pickle.load(f)
+        if self.direct_io:
+            ll = os.path.getsize(path)
+            f = os.open(path, os.O_RDONLY | os.O_DIRECT)
+            try:
+                data = read(f, ll)
+                fps = pickle.loads(data)
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'rb') as f:
+                fps = pickle.load(f)
         return fps
 
     def _fill_cache_with_container_fp(self, container_id):
@@ -143,9 +168,7 @@ class ChunkStore(object):
         :return:
         '''
         if not fp in self.bf:
-            self.container.add(fp, chunk)
-            container_id = self.container.get_id()
-            self.index.put(fp, container_id)
+            self.bf.add(fp)
             container_id = self.store(fp, chunk)
             self.index.put(fp, container_id)
             return
@@ -154,26 +177,34 @@ class ChunkStore(object):
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
-            self.dup_cluster_set.add(self.dup_cluster)
+            self.dup_cluster_set.append(self.dup_cluster)
             self.current_continue_dup = 0
         self.dup_cluster[fp] = chunk
         self.index.buf(fp, self.dup_cluster)
 
     def lazy_callback(self, result):
         load_container_set = set()
-        for fp, cluster, container_id in result:
-            if container_id:
-                if not container_id in load_container_set:
-                    self._load_container_fp(container_id)
+        for fp, container_id, clusters in result:
+            if container_id and clusters:
+                if container_id not in load_container_set:
+                    self._fill_cache_with_container_fp(container_id)
                     load_container_set.add(container_id)
-                for fp, chunk in cluster.iterms():
-                    if self._get_from_cache(self.fp_cache, fp):
-                        del cluster[fp]
+                for cluster in clusters:
+                    for fp, chunk in cluster.items():
+                        if self._get_from_cache(self.fp_cache, fp):
+                            del cluster[fp]
             else:
-                chunk = cluster.get(fp)
-                del cluster[fp]
+                for cluster in clusters:
+                    chunk = cluster.get(fp)
+                    if chunk:
+                        break
                 container_id = self.store(fp, chunk)
                 self.index.put(fp, container_id)
+                for cluster in clusters:
+                    del cluster[fp]
+            for cluster in clusters:
+                if not cluster:
+                    self.dup_cluster_set.remove(cluster)
 
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
@@ -190,7 +221,9 @@ class ChunkStore(object):
     def put(self, fp, chunk, obj_controller, req):
         self.object_controller = obj_controller
         self.req = req
-        if self.lazy_dedupe:
+        if self.sqlite_index:
+            return self._sqlite_get(fp)
+        elif self.lazy_dedupe:
             self._lazy_dedupe(fp, chunk)
         else:
             self._eager_dedupe(fp, chunk)
@@ -230,21 +263,22 @@ class ChunkStore(object):
         return dc_container.get(fp)
 
     def _lazy_get(self, fp):
-        pass
+        #check if the chunk in the buffer area
+        for cluster in self.dup_cluster_set:
+            r = cluster.get(fp)
+            if r:
+                return r
+        return self._eager_get(fp)
 
     def get(self, fp, controller, req):
         self.object_controller = controller
         self.req = req
         if self.sqlite_index:
             return self._sqlite_get(fp)
-            pass # TODO: get a chunk in lazy deduplication
         elif self.lazy_dedupe:
             return self._lazy_get(fp)
         else:
             return self._eager_get(fp)
-
-    def get_coutainer_id(self, fp):
-        pass
 
 
 class InformationDatabase(object):
