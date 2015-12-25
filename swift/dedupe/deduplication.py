@@ -41,12 +41,12 @@ class ChunkStore(object):
                 self.index = LazyHashTable(conf, self.lazy_callback)
                 self.lazy_max_unique = int(conf.get('lazy_max_unique', 200))
                 self.lazy_max_fetch = int(conf.get('lazy_max_fetch', self.dc_size))
-                self.dup_cluster_set = []
                 self.dup_cluster = dict()
-                self.dup_cluster_set.append(self.dup_cluster)
                 self.current_continue_dup = 0
             else:
                 self.index = DiskHashTable(conf)
+
+        self.debug_get_count = 0
 
     def _add2cache(self, cache, key, value):
         cache[key] = value
@@ -159,25 +159,17 @@ class ChunkStore(object):
 
     def _lazy_dedupe(self, fp, chunk):
         '''
-        Deduplicate the chunk using the given fingerprint
-        1. go through the bloom filer if unique, then unique, else, next to 2
-        2. lookup in the cache, if found ,duplicate, else, next to 3
-        3. buffer until one buffer bucket is full
-        :param fp: fingerprint
-        :param chunk: the content
-        :return:
-        '''
         if not fp in self.bf:
             self.bf.add(fp)
             container_id = self.store(fp, chunk)
             self.index.put(fp, container_id)
             return
+        '''
         self.current_continue_dup += 1
         if self._get_from_cache(self.fp_cache, fp):
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
-            self.dup_cluster_set.append(self.dup_cluster)
             self.current_continue_dup = 0
         self.dup_cluster[fp] = chunk
         self.index.buf(fp, self.dup_cluster)
@@ -192,6 +184,7 @@ class ChunkStore(object):
                 for cluster in clusters:
                     for fp, chunk in cluster.items():
                         if self._get_from_cache(self.fp_cache, fp):
+                            self.index.buf_remove(fp)
                             del cluster[fp]
             else:
                 for cluster in clusters:
@@ -202,9 +195,6 @@ class ChunkStore(object):
                 self.index.put(fp, container_id)
                 for cluster in clusters:
                     del cluster[fp]
-            for cluster in clusters:
-                if not cluster:
-                    self.dup_cluster_set.remove(cluster)
 
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
@@ -264,15 +254,19 @@ class ChunkStore(object):
 
     def _lazy_get(self, fp):
         #check if the chunk in the buffer area
-        for cluster in self.dup_cluster_set:
-            r = cluster.get(fp)
-            if r:
-                return r
+        clusters = self.index.buf_get(fp)
+        if clusters:
+            for cluster in clusters:
+                if fp in cluster:
+                    return cluster.get(fp)
         return self._eager_get(fp)
 
     def get(self, fp, controller, req):
         self.object_controller = controller
         self.req = req
+        self.debug_get_count += 1
+        if self.debug_get_count > 43:
+            pass
         if self.sqlite_index:
             return self._sqlite_get(fp)
         elif self.lazy_dedupe:
