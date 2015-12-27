@@ -46,8 +46,6 @@ class ChunkStore(object):
             else:
                 self.index = DiskHashTable(conf)
 
-        self.debug_get_count = 0
-
     def _add2cache(self, cache, key, value):
         cache[key] = value
 
@@ -158,13 +156,11 @@ class ChunkStore(object):
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):
-        '''
         if not fp in self.bf:
             self.bf.add(fp)
             container_id = self.store(fp, chunk)
             self.index.put(fp, container_id)
             return
-        '''
         self.current_continue_dup += 1
         if self._get_from_cache(self.fp_cache, fp):
             return
@@ -238,14 +234,13 @@ class ChunkStore(object):
         resp = self.object_controller.GETorHEAD(req)
         self.object_controller.object_name = obj_name
 
-
-        dc_container = DedupeContainer(dc_id)
-
         data = ''
         for d in iter(resp.app_iter):
             data += d
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
             data = lz4.loads(data)
+        del resp
+        dc_container = DedupeContainer(dc_id)
         dc_container.loads(data)
 
         self._add2cache(self.dc_cache, dc_id, dc_container)
@@ -264,9 +259,6 @@ class ChunkStore(object):
     def get(self, fp, controller, req):
         self.object_controller = controller
         self.req = req
-        self.debug_get_count += 1
-        if self.debug_get_count > 43:
-            pass
         if self.sqlite_index:
             return self._sqlite_get(fp)
         elif self.lazy_dedupe:

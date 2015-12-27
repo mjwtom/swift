@@ -116,7 +116,7 @@ class Compress(object):
         metadata['Content-Length'] = str(len(data))
         metadata['X-Object-Sysmeta-Compressed'] = 'yes'
         metadata['X-Object-Sysmeta-Lz4hc'] = str(self.hc)
-        metadata['Etag'] = etag.hexdigest()
+        metadata['ETag'] = etag.hexdigest()
         info['X-Timestamp'] = metadata.get('X-Timestamp', '0')
         metadata['X-Timestamp'] = Timestamp(time()).internal
         self._delete(info)
