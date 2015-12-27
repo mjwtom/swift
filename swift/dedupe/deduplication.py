@@ -1,4 +1,4 @@
-from swift.dedupe.pybloom.pybloom import BloomFilter
+from pybloom import BloomFilter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.dedupe.state import DedupeState
 from swift.common.utils import config_true_value

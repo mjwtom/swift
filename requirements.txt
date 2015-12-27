@@ -13,4 +13,6 @@ xattr>=0.4
 PyECLib==1.0.7                          # BSD
 lz4                                     #mjw de-duplication
 directio                                #mjw de-duplication
-lru-dict                                     #mjw de-duplication
+lru-dict                                #mjw de-duplication
+PyRabin                                 #mjw de-duplication
+PyBloom                                 #mjw de-duplication
