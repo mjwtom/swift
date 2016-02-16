@@ -1,4 +1,6 @@
 from hashlib import md5
+
+
 class DeDuplicationCache(object):
     def __init__(self, index_size = 1024*128, bucket_size = 16):
         self.index_size = index_size

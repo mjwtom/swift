@@ -1,34 +1,39 @@
 #!/usr/bin/python
-import os
+from subprocess import Popen, PIPE
+from os import environ
+
 
 if __name__ == '__main__':
+    account_server_num = 4
+    container_server_num = 4
+    object_server_num = 4
+    print environ.get('PYTHONPATH')
     print ('Reseting Swift......')
-    os.system('resetswift')
     print ('Done')
-    #start proxy-server
     print ('Starting Proxy Server......')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-proxy-server /etc/swift/proxy-server.conf &')
+    cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-proxy-server ' \
+          '/home/mjwtom/PycharmProjects/swift/doc/saio/swift/proxy-server.conf'
+    proxy=Popen(cmd, stdout=PIPE, stderr=PIPE)
     print ('Done')
-    #start account server
-    print ('Starting Account Servers......')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-account-server /etc/swift/account-server/1.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-account-server /etc/swift/account-server/2.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-account-server /etc/swift/account-server/3.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-account-server /etc/swift/account-server/4.conf &')
+    accounts = []
+    for i in range(account_server_num):
+        print ('start account server %d' % i)
+        cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-account-server ' \
+              '/home/mjwtom/PycharmProjects/swift/doc/saio/swift/account-server/%d.conf' % i
+        r = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        accounts.append(r)
     print ('Done')
-    #start container server
-    print ('Starting Container Servers......')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-container-server /etc/swift/container-server/1.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-container-server /etc/swift/container-server/2.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-container-server /etc/swift/container-server/3.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-container-server /etc/swift/container-server/4.conf &')
+    containers = []
+    for i in range(container_server_num):
+        cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-container-server ' \
+              '/home/mjwtom/PycharmProjects/swift/doc/saio/swift/container-server/%d.conf' % i
+        r = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        containers.append(r)
     print ('Done')
-    #start object server
-    print ('Starting Object Servers......')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-object-server /etc/swift/object-server/1.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-object-server /etc/swift/object-server/2.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-object-server /etc/swift/object-server/3.conf &')
-    os.system('/home/mjwtom/PycharmProjects/swift/bin/swift-object-server /etc/swift/object-server/4.conf &')
-    print ('Start Rsync Server......')
-    os.system('sudo service rsync start')
+    objects = []
+    for i in range(object_server_num):
+        cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-object-server ' \
+              '/home/mjwtom/PycharmProjects/swift/doc/saio/swift/object-server/%d.conf' % i
+        r = Popen(cmd)
+        objects.append(cmd, stdout=PIPE, stderr=PIPE)
     print ('Done')
