@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SWIFT_TEST_DIR=/home/mjwtom/openstack-swift/
+SWIFT_TEST_DIR=/home/$USER/openstack-swift/
 SWIFT_ETC_DIR=$SWIFT_TEST_DIR/etc/
 SWIFT_CODE_DIR=/home/mjwtom/PycharmProjects/swift/
 
