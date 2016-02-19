@@ -1,13 +1,16 @@
 #!/bin/bash
 
-SWIFT_ETC_DIR=/home/mjwtom/openstack-swift/etc/
+SWIFT_TEST_DIR=/home/mjwtom/openstack-swift/
+SWIFT_ETC_DIR=$SWIFT_TEST_DIR/etc/
 SWIFT_CODE_DIR=/home/mjwtom/PycharmProjects/swift/
 
-cd $SWIFT_DIR
+cd $SWIFT_ETC_DIR
 
 rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
 
-cp -r $SWIFT_CODE_DIR/.git $SWIFT_ETC_DIR
+rm -rf $SWIFT_TEST_DIR/.git
+
+cp -rf $SWIFT_CODE_DIR/.git $SWIFT_TEST_DIR
 
 export PYTHONPATH=$PYTHONPATH:$SWIFT_CODE_DIR
 

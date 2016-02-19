@@ -100,7 +100,7 @@ if __name__ == '__main__':
     os.system('sudo pip install -U xattr')
     os.system('cd $HOME/PycharmProjects/swift; sudo pip install -r test-requirements.txt')
 
-    os.system('sudo cp $HOME/PycharmProjects/swift/doc/saio/rsyncd.conf /etc/')
+    os.system('sudo cp $HOME/PycharmProjects/swift/doc/dedupe/rsyncd.conf /etc/')
     os.system('sudo sed -i "s/<your-user-name>/${USER}/" /etc/rsyncd.conf')
 
     # do step 3 here
@@ -109,7 +109,7 @@ if __name__ == '__main__':
 
     os.system('sudo service memcached start')
     os.system('sudo chkconfig memcached on')
-    os.system('sudo cp $HOME/PycharmProjects/swift/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/')
+    os.system('sudo cp $HOME/PycharmProjects/swift/doc/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/')
 
     # do step 4 here
 
@@ -121,13 +121,13 @@ if __name__ == '__main__':
     os.system('sudo service rsyslog restart')
 
     os.system('sudo rm -rf /etc/swift')
-    os.system('cd $HOME/PycharmProjects/swift/doc; sudo cp -r saio/swift /etc/swift; cd -')
+    os.system('cd $HOME/PycharmProjects/swift/doc; sudo cp -r dedupe/swift /etc/swift; cd -')
     os.system('sudo chown -R ${USER}:${USER} /etc/swift')
 
     os.system('find /etc/swift/ -name \*.conf | xargs sudo sed -i "s/<your-user-name>/${USER}/"')
 
     os.system('mkdir -p $HOME/bin')
-    os.system('cd $HOME/PycharmProjects/swift/doc; cp saio/bin/* $HOME/bin; cd -')
+    os.system('cd $HOME/PycharmProjects/swift/doc; cp dedupe/bin/* $HOME/bin; cd -')
     os.system('chmod +x $HOME/bin/*')
 
     # do step 5 here
