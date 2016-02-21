@@ -1,18 +1,12 @@
 #!/bin/bash
 
-SWIFT_TEST_DIR=/home/$USER/openstack-swift/
-SWIFT_ETC_DIR=$SWIFT_TEST_DIR/etc/
+SWIFT_DATA_DIR=/home/$USER/swift-data/
+SWIFT_ETC_DIR=/etc/swift/
 SWIFT_CODE_DIR=/home/mjwtom/PycharmProjects/swift/
 
 cd $SWIFT_ETC_DIR
 
 rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
-
-rm -rf $SWIFT_TEST_DIR/.git
-
-cp -rf $SWIFT_CODE_DIR/.git $SWIFT_TEST_DIR
-
-export PYTHONPATH=$PYTHONPATH:$SWIFT_CODE_DIR
 
 $SWIFT_CODE_DIR/bin/swift-ring-builder object.builder create 10 3 1
 $SWIFT_CODE_DIR/bin/swift-ring-builder object.builder add r1z1-127.0.0.1:6010/sdb1 1

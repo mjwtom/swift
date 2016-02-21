@@ -1,9 +1,6 @@
 #!/usr/bin/python
-'''
-Created on Jan 12, 2015
 
-@author: mjwtom
-'''
+
 import os
 import time
 
