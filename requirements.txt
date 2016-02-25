@@ -16,3 +16,4 @@ directio                                #mjw de-duplication
 lru-dict                                #mjw de-duplication
 PyRabin                                 #mjw de-duplication
 PyBloom                                 #mjw de-duplication
+paramiko                                #mjw ssh used in the test
