@@ -2,8 +2,7 @@
 import os
 import subprocess
 
-ips = ['220.113.20.150',
-       '220.113.20.142',
+ips = ['220.113.20.142', #'220.113.20.150' used for debug, so we have 12 nodes, I like 12 than 13
        '220.113.20.144',
        '220.113.20.151',
        '220.113.20.120',

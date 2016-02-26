@@ -60,17 +60,17 @@ class SSH(object):
                     remote_subpath = os.path.join(remote, f)
                     recur_put(sftp, local_subpath, remote_subpath)
 
-        def rmtree(sftp, remotepath, level=0):
-            for f in sftp.listdir_attr(remotepath):
-                rpath = os.path.join(remotepath, f.filename)
-                if stat.S_ISDIR(f.st_mode):
-                    rmtree(sftp, rpath, level=(level + 1))
-                else:
-                    rpath = os.path.join(remotepath, f.filename)
-                    print('removing %s%s' % ('    ' * level, rpath))
-                    sftp.remove(rpath)
-            print('removing %s%s' % ('    ' * level, remotepath))
-            sftp.rmdir(remotepath)
+        def rmtree(sftp, remotepath):
+            remote_tate = sftp.lstat(remotepath)
+            if stat.S_ISDIR(remote_tate.st_mode):
+                for file in sftp.listdir(remotepath):
+                    subpath = remotepath + '/' + file
+                    print 'removing directory %s' % subpath
+                    rmtree(sftp, subpath)
+                sftp.rmdir(remotepath)
+            else:
+                print 'removing file %s' % remotepath
+                sftp.remove(remotepath)
 
         if not os.path.exists(local):
             return

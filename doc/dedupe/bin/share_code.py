@@ -96,12 +96,12 @@ def simple_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
             return
 
 
-def share_code(usr='root', ip='127.0.0.1', port=22, pwd=None, src_dir=None, dst_dir=None):
+def share_code(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
     print ip
-    time.sleep(1)
-    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    client.connect()
-    client.transport(src_dir, dst_dir, 'put', True)
+    for src, dst in tasks:
+        client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
+        client.connect()
+        client.transport(src, dst, 'put', True)
 
 
 def thread_install_software(softwares):
@@ -137,20 +137,15 @@ def thread_reboot():
         thread.join()
 
 
-def thread_share_code():
-    tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
-             ('/home/mjwtom/Python-2.7.11.tgz', '/home/m/mjwtom/Python-2.7.11.tgz'),
-             ('/home/mjwtom/setuptools-20.2.1.tar.gz', '/home/m/mjwtom/setuptools-20.2.1.tar.gz'),
-             ('/home/mjwtom/pip-8.0.2.tar.gz', '/home/m/mjwtom/pip-8.0.2.tar.gz')]
-    for src, dst in tasks:
-        threads = []
-        for ip in ips:
-            args = (usr, ip, port, pwd, src, dst)
-            threads.append(Thread(target=share_code, args=args))
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+def thread_share_code(tasks=None):
+    threads = []
+    for ip in ips:
+        args = (usr, ip, port, pwd, tasks)
+        threads.append(Thread(target=share_code, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 softwares_swift = ['curl',
@@ -181,12 +176,17 @@ softwares_python = ['zlib-devel',
              'ncurses-devel',
              'sqlite-devel']
 
-#share_code()
+
 '''
 cmds = ['sudo -k cp -r /home/m/mjwtom/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo']
 ips = ['222.30.48.9']
 port = 9150
 '''
+
+tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
+         ('/home/mjwtom/Python-2.7.11.tgz', '/home/m/mjwtom/Python-2.7.11.tgz'),
+         ('/home/mjwtom/setuptools-20.2.1.tar.gz', '/home/m/mjwtom/setuptools-20.2.1.tar.gz'),
+         ('/home/mjwtom/pip-8.0.2.tar.gz', '/home/m/mjwtom/pip-8.0.2.tar.gz')]
 
 
 
@@ -203,8 +203,8 @@ cmds = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
 
 thread_install_software(softwares_python)
 
-thread_share_code()
+thread_share_code(tasks)
 
 thread_cmd(cmds)
 
-thread_reboot()
+# thread_reboot()
