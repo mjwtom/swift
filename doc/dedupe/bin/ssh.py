@@ -46,21 +46,19 @@ class SSH(object):
 
         def recur_put(sftp, local, remote):
             if os.path.isfile(local):
-                sftp.put(local, os.path.join(remote, local))
+                print 'uploading %s' % local
+                sftp.put(local, remote)
             elif os.path.isdir(local):
                 try:
+                    print 'making directory %s' % local
                     sftp.mkdir(remote)
                 except IOError as e:
                     print '(assuming ', remote, 'exists)', e
                 files = os.listdir(local)
                 for f in files:
                     local_subpath = os.path.join(local, f)
-                    remomte_subpath = os.path.join(remote, f)
-                    if os.path.isfile(local_subpath):
-                        print 'uploading file %s' % remomte_subpath
-                        sftp.put(local_subpath, remomte_subpath)
-                    elif os.path.isdir(local_subpath):
-                        recur_put(sftp, local_subpath, remomte_subpath)
+                    remote_subpath = os.path.join(remote, f)
+                    recur_put(sftp, local_subpath, remote_subpath)
 
         def rmtree(sftp, remotepath, level=0):
             for f in sftp.listdir_attr(remotepath):
