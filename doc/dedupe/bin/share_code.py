@@ -3,8 +3,6 @@
 
 
 from ssh import SSH
-from subprocess import Popen
-import time
 from threading import Thread
 
 
@@ -29,7 +27,6 @@ pwd = 'softraid'
 def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=None):
     print ip
     client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    client.connect()
     cmd = 'sudo -k yum update'
     stdin, stdout, stderr = client.execute(cmd+'\n', True, old_pty=True)
     if cmd.startswith('sudo'):
@@ -63,7 +60,6 @@ def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=No
 def reboot(usr='root', ip='127.0.0.1', port=22, pwd=None):
     print ip
     client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    client.connect()
     cmd = 'sudo -k reboot'
     stdin, stdout, stderr = client.execute(cmd+'\n', True, old_pty=True)
     if cmd.startswith('sudo'):
@@ -82,7 +78,6 @@ def reboot(usr='root', ip='127.0.0.1', port=22, pwd=None):
 def simple_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
     print ip
     client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    client.connect()
     for cmd in cmds:
         print cmd
         stdin, stdout, stderr = client.execute(cmd, True, old_pty=True)
@@ -190,21 +185,32 @@ tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
 
 
 
-cmds = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
-        'rm /home/m/mjwtom/install/ -rf',
-        'rm /home/m/mjwtom/pip-8.0.2/ -rf',
-        'rm /home/m/mjwtom/setuptools-20.2.1/ -rf',
-        'cd /home/m/mjwtom/; tar -zxvf Python-2.7.11.tgz;',
-        'cd /home/m/mjwtom/; tar -zxvf setuptools-20.2.1.tar.gz;',
-        'cd /home/m/mjwtom/; tar -zxvf pip-8.0.2.tar.gz;',
-        'cd /home/m/mjwtom/Python-2.7.11; ./configure --prefix=/home/m/mjwtom/install/python; make install;',
-        'cd /home/m/mjwtom/setuptools-20.2.1;  /home/m/mjwtom/install/python/bin/python setup.py install;',
-        'cd /home/m/mjwtom/pip-8.0.2;  /home/m/mjwtom/install/python/bin/python setup.py install;']
+cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
+               'rm /home/m/mjwtom/install/ -rf',
+               'rm /home/m/mjwtom/pip-8.0.2/ -rf',
+               'rm /home/mjwtom/swift-data -rf',
+               'rm /home/mjwtom/bin -rf',
+               'rm /home/m/mjwtom/setuptools-20.2.1/ -rf',
+               'cd /home/m/mjwtom/; tar -zxvf Python-2.7.11.tgz;',
+               'cd /home/m/mjwtom/; tar -zxvf setuptools-20.2.1.tar.gz;',
+               'cd /home/m/mjwtom/; tar -zxvf pip-8.0.2.tar.gz;',
+               'cd /home/m/mjwtom/Python-2.7.11; ./configure --prefix=/home/m/mjwtom/install/python; make install;',
+               'cd /home/m/mjwtom/setuptools-20.2.1;  /home/m/mjwtom/install/python/bin/python setup.py install;',
+               'cd /home/m/mjwtom/pip-8.0.2;  /home/m/mjwtom/install/python/bin/python setup.py install;',
+               'mkdir /home/m/mjwtom/swift-data',
+               'mkdir /home/m/mjwtom/swift-data/sdb1',
+               'mkdir /home/m/mjwtom/bin',
+               'ln -s /home/m/mjwtom/install/python/bin/python /home/m/mjwtom/bin/python',
+               'ln -s /home/m/mjwtom/install/python/bin/pip /home/m/mjwtom/bin/pip',
+               'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/pip uninstall -r requirements.txt',
+               'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/pip install -r requirements.txt',
+               'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop']
 
-thread_install_software(softwares_python)
+#thread_install_software(softwares_python)
 
 thread_share_code(tasks)
 
-thread_cmd(cmds)
+thread_cmd(cmds_python)
+
 
 # thread_reboot()

@@ -46,7 +46,7 @@ for builder, last_port_dig in [('object.builder', 0),
         i += 1
     os.system('chown -R mjwtom:mjwtom %s' % DATA_DIR)
 
-    cmd = cmd = ['swift-ring-builder',
+    cmd = ['swift-ring-builder',
            '%s' % builder,
            'rebalance']
     print 'cmd'.join(cmd)

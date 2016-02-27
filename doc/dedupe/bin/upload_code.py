@@ -12,5 +12,4 @@ src_dir='/home/mjwtom/PycharmProjects/swift/'
 dst_dir = '/home/mjwtom/swift/'
 
 client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-client.connect()
 client.transport(src_dir, dst_dir, 'put', True)

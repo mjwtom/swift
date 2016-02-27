@@ -1,44 +1,59 @@
 #!/usr/bin/python
-from subprocess import Popen, PIPE, call
-
-import os
 import sys
+sys.path.append('../..')
+from dedupe.bin.ssh import SSH
+
+from threading import Thread
+
+ip = '127.0.0.1'
+port = 22
+usr='mjwtom'
+password = 'missing1988'
 
 
-if __name__ == '__main__':
-    account_server_num = 4
-    container_server_num = 4
-    object_server_num = 4
-    sys.path.append('/home/mjwtom/PycharmProjects/swift/')
-    print ('Reseting Swift......')
-    print ('Done')
-    print ('Starting Proxy Server......')
-    cmd = ['/home/mjwtom/PycharmProjects/swift/bin/swift-proxy-server',
-          '/home/mjwtom/PycharmProjects/swift/doc/dedupe/swift/proxy-server.conf']
-    proxy=Popen(cmd)
-    print ('Done')
-    accounts = []
-    for i in range(account_server_num):
-        print ('start account server %d' % i)
-        cmd = ['/home/mjwtom/PycharmProjects/swift/bin/swift-account-server',
-              '/home/mjwtom/PycharmProjects/swift/doc/dedupe/swift/account-server/%d.conf' % i]
-        r = Popen(cmd)
-        accounts.append(r)
-    print ('Done')
-    containers = []
-    for i in range(container_server_num):
-        cmd = ['/home/mjwtom/PycharmProjects/swift/bin/swift-container-server',
-              '/home/mjwtom/PycharmProjects/swift/doc/dedupe/swift/container-server/%d.conf' % i]
-        r = Popen(cmd)
-        containers.append(r)
-    print ('Done')
-    objects = []
-    for i in range(object_server_num):
-        cmd = ['/home/mjwtom/PycharmProjects/swift/bin/swift-object-server',
-              '/home/mjwtom/PycharmProjects/swift/doc/dedupe/swift/object-server/%d.conf' % i]
-        r = Popen(cmd)
-        objects.append(cmd)
-    print ('Done')
+def run_server(cmd=None, conf=None):
+    client = SSH(usr=usr, ip=ip, pwd=password, port=port)
+    cmd = cmd + ' ' + conf
+    stdin, stdout, stderr = client.execute(cmd)
+    for l in stdout:
+        print 'stdout: %s' % l.strip()
+        if 'Total' in l:
+            stdin.write('Y\n')
+            stdin.flush()
+    for l in stderr:
+        print 'stderr: %s' % l.strip()
 
 
-    # wait for the process to end
+def start_all():
+    object_servers = []
+    container_servers = []
+    account_servers = []
+    proxy_servers = []
+    servers = ['object-server', 'container-server', 'account-server']
+    for x in range(1, 5):
+        for server in servers:
+            print 'starting %s %d' % (server, x)
+            cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-%s' % server
+            conf = '/home/mjwtom/PycharmProjects/swift/doc/dedupe-aio/swift/%s/%d.conf' % (server, x)
+            args = (cmd, conf)
+            if server == 'object-server':
+                object_servers.append(Thread(target=run_server, args=args))
+            elif server == 'container-server':
+                container_servers.append(Thread(target=run_server, args=args))
+            elif server == 'account-server':
+                account_servers.append(Thread(target=run_server, args=args))
+    cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-proxy-server'
+    conf = '/home/mjwtom/PycharmProjects/swift/doc/dedupe-aio/swift/proxy-server.conf'
+    args = (cmd, conf)
+    proxy_servers.append(Thread(target=run_server, args=args))
+    threads = []
+    threads.extend(object_servers)
+    threads.extend(container_servers)
+    threads.extend(account_servers)
+    threads.extend(proxy_servers)
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+start_all()

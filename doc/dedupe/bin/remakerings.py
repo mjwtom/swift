@@ -2,6 +2,10 @@
 import os
 import subprocess
 
+print (os.environ["PATH"])
+os.environ["PATH"]= '/home/mjwtom/install/python/bin' + ":" + os.environ["PATH"]
+print (os.environ["PATH"])
+
 ips = ['220.113.20.142', #'220.113.20.150' used for debug, so we have 12 nodes, I like 12 than 13
        '220.113.20.144',
        '220.113.20.151',
@@ -14,28 +18,26 @@ ips = ['220.113.20.142', #'220.113.20.150' used for debug, so we have 12 nodes, 
        '220.113.20.128',
        '220.113.20.129',
        '220.113.20.131']
-port = 6000
+
 dev = '/home/m/mjwtom/swift-data/'
-SWIFT_ETC_DIR='/etc/swift/'
-
-print os.getcwd()
-os.chdir(SWIFT_ETC_DIR)
-
-files = os.listdir(SWIFT_ETC_DIR)
+ETC_SWIFT='/etc/swift'
+print 'current work path:%s' % os.getcwd()
+os.chdir(ETC_SWIFT)
+print 'change work path to:%s' % os.getcwd()
+files = os.listdir(ETC_SWIFT)
 for file in files:
-    path = SWIFT_ETC_DIR + '/' + file
+    path = ETC_SWIFT + '/' + file
     if os.path.isdir(path):
         continue
     shotname, extentsion = os.path.splitext(file)
-    if (extentsion == 'builder') or (extentsion == '.gz'):
+    if (extentsion == '.builder') or (extentsion == '.gz'):
         os.remove(path)
 
-for builder in ['object.builder',
-                'object-1.builder',
-                'object-2.builder',
-                'container.builder',
-                'account.builder']:
-
+for builder, port in [('object.builder', 6000),
+                      ('object-1.builder', 6000),
+                      ('object-2.builder', 6000),
+                      ('container.builder', 6001),
+                      ('account.builder', 6002)]:
     cmd = ['swift-ring-builder',
            '%s' % builder,
            'create',
@@ -52,8 +54,7 @@ for builder in ['object.builder',
                '1']
         subprocess.call(cmd)
         i += 1
-
-    cmd = cmd = ['swift-ring-builder',
+    cmd = ['swift-ring-builder',
            '%s' % builder,
            'rebalance']
     subprocess.call(cmd)

@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from ssh import SSH
+import sys
+sys.path.append('../..')
+from dedupe.bin.ssh import SSH
 
 ip = '222.30.48.9'
 usr = 'mjwtom'

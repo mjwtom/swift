@@ -4,15 +4,18 @@ import stat
 
 
 class SSH(object):
-    def __init__(self, usr='root', ip='127.0.0.1', port=22, pwd='', logfile='/tmp/dedupe-ssh-log.txt'):
+    def __init__(self, usr='root', ip='127.0.0.1', port=22, pwd='', connect=True, logfile='/tmp/dedupe-ssh-log.txt'):
         self.usr = usr
         self.pwd = pwd
         self.ip = ip
         self.port = port
         self.logfile = logfile
-        self.client = None
+        if connect:
+            self.connect()
+        else:
+            self.client = None
 
-    def connect(self, is_cmd=True):
+    def connect(self):
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self.client.connect(hostname=self.ip,
@@ -25,12 +28,13 @@ class SSH(object):
             self.client.close()
             self.client = None
 
-    def execute(self, cmd= None, get_pty=True, old_pty=False):
+    def execute(self, cmd= None, get_pty=False, old_pty=False):
         if old_pty:
             trans = self.client.get_transport()
             session = trans.open_session()
             session.set_combine_stderr(True)
-            session.get_pty()
+            if get_pty:
+                session.get_pty()
             session.exec_command(cmd)
             stdin = session.makefile('wb', -1)
             stdout = session.makefile('rb', -1)
