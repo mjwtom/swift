@@ -56,6 +56,8 @@ class DiskHashTable(object):
         if config_true_value(conf.get('clean_disk_hash', 'false')):
             if os.path.exists(self.disk_hash_dir):
                 shutil.rmtree(self.disk_hash_dir)
+        if not os.path.exists(self.disk_hash_dir):
+            os.makedirs(self.disk_hash_dir)
 
     def _map_bucket(self, key):
         h = md5(key)

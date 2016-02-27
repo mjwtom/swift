@@ -30,6 +30,7 @@ class ChunkStore(object):
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.state = DedupeState()
         self.next_dc_id = int(conf.get('next_dc_id', 0))
+        self.container = None
         self.new_container()
         self.container_fp_dir = conf.get('dedupe_container_fp_dir', '/tmp/swift/container_fp/')
         self.sqlite_index = config_true_value(conf.get('sqlite_index', 'false'))
@@ -80,7 +81,12 @@ class ChunkStore(object):
                 pickle.dump(fps, f)
 
     def _load_container_fp(self, container_id):
+        if container_id == self.container.get_id():
+            fps = self.container.get_fps()
+            return fps
         path = self.container_fp_dir + '/' + container_id
+        if not os.path.exists(path):
+            return None
         if self.direct_io:
             ll = os.path.getsize(path)
             f = os.open(path, os.O_RDONLY | os.O_DIRECT)

@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 
-from ssh import SSH
 from threading import Thread
 
+from test.dedupe.ssh import SSH
 
 ips = ['220.113.20.150',
        '220.113.20.142',

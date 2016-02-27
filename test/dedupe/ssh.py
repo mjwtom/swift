@@ -33,6 +33,9 @@ class SSH(object):
             trans = self.client.get_transport()
             session = trans.open_session()
             session.set_combine_stderr(True)
+            cmd = cmd.stripe()
+            if cmd.startswith('sudo') and (get_pty==False):
+                print 'warning: when use sudo, get_pty should be set'
             if get_pty:
                 session.get_pty()
             session.exec_command(cmd)
