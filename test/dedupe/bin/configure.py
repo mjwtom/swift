@@ -3,8 +3,10 @@
 
 
 from threading import Thread
+import sys
+from test.dedupe.ssh import SSH, run_cmds, uploads, run_cmd, upload
+from remakerings import generate_rings
 
-from test.dedupe.ssh import SSH
 
 ips = ['220.113.20.150',
        '220.113.20.142',
@@ -57,48 +59,6 @@ def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=No
             return
 
 
-def reboot(usr='root', ip='127.0.0.1', port=22, pwd=None):
-    print ip
-    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    cmd = 'sudo -k reboot'
-    stdin, stdout, stderr = client.execute(cmd+'\n', True, old_pty=True)
-    if cmd.startswith('sudo'):
-        stdin.write(pwd+'\n')
-        stdin.flush()
-    for l in stdout:
-        print 'stdout: %s' % l.strip()
-        if 'Total' in l:
-            stdin.write('Y\n')
-            stdin.flush()
-    for l in stderr:
-        print 'stderr: %s' % l.strip()
-        return
-
-
-def simple_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
-    print ip
-    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    for cmd in cmds:
-        print cmd
-        stdin, stdout, stderr = client.execute(cmd, True, old_pty=True)
-        if cmd.startswith('sudo'):
-            stdin.write(pwd+'\n')
-            stdin.flush()
-        for l in stdout:
-            print 'stdout: %s' % l.strip()
-        for l in stderr:
-            print 'stderr: %s' % l.strip()
-            return
-
-
-def share_code(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
-    print ip
-    for src, dst in tasks:
-        client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-        client.connect()
-        client.transport(src, dst, 'put', True)
-
-
 def thread_install_software(softwares):
     threads = []
     for ip in ips:
@@ -110,11 +70,11 @@ def thread_install_software(softwares):
         thread.join()
 
 
-def thread_cmd(cmd):
+def thread_cmd(cmds):
     threads = []
     for ip in ips:
-        args = (usr, ip, port, pwd, cmd)
-        threads.append(Thread(target=simple_cmd, args=args))
+        args = (usr, ip, port, pwd, cmds)
+        threads.append(Thread(target=run_cmds, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -124,8 +84,8 @@ def thread_cmd(cmd):
 def thread_reboot():
     threads = []
     for ip in ips:
-        args = (usr, ip, port, pwd)
-        threads.append(Thread(target=reboot, args=args))
+        args = (usr, ip, port, pwd, 'sudo -k reboot')
+        threads.append(Thread(target=run_cmd, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -136,7 +96,41 @@ def thread_share_code(tasks=None):
     threads = []
     for ip in ips:
         args = (usr, ip, port, pwd, tasks)
-        threads.append(Thread(target=share_code, args=args))
+        threads.append(Thread(target=uploads, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+def thread_share_ring():
+    threads = []
+    src = '/etc/swift/'
+    dst = '/home/m/mjwtom/swift'
+    for ip in ips:
+        args = (usr, ip, port, pwd, src, dst)
+        threads.append(Thread(target=upload, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    cmd = 'sudo -k rm -rf /etc/swift/; sudo mv -f /home/m/mjwtom/swift/ /ect/;'
+    threads = []
+    for ip in ips:
+        args = (usr, ip, port, pwd, cmd)
+        threads.append(Thread(target=run_cmd, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+def thread_install():
+    threads = []
+    cmd = 'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop;'
+    for ip in ips:
+        args = (usr, ip, port, pwd, cmd)
+        threads.append(Thread(target=run_cmd, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -178,18 +172,21 @@ ips = ['222.30.48.9']
 port = 9150
 '''
 
-tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
+tasks_before = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
          ('/home/mjwtom/Python-2.7.11.tgz', '/home/m/mjwtom/Python-2.7.11.tgz'),
          ('/home/mjwtom/setuptools-20.2.1.tar.gz', '/home/m/mjwtom/setuptools-20.2.1.tar.gz'),
          ('/home/mjwtom/pip-8.0.2.tar.gz', '/home/m/mjwtom/pip-8.0.2.tar.gz')]
+
+tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift')]
+
 
 
 
 cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
                'rm /home/m/mjwtom/install/ -rf',
                'rm /home/m/mjwtom/pip-8.0.2/ -rf',
-               'rm /home/mjwtom/swift-data -rf',
-               'rm /home/mjwtom/bin -rf',
+               'rm /home/m/jwtom/swift-data -rf',
+               'rm /home/m/jwtom/bin -rf',
                'rm /home/m/mjwtom/setuptools-20.2.1/ -rf',
                'cd /home/m/mjwtom/; tar -zxvf Python-2.7.11.tgz;',
                'cd /home/m/mjwtom/; tar -zxvf setuptools-20.2.1.tar.gz;',
@@ -206,11 +203,19 @@ cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
                'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/pip install -r requirements.txt',
                'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop']
 
-#thread_install_software(softwares_python)
 
-thread_share_code(tasks)
-
-thread_cmd(cmds_python)
-
-
-# thread_reboot()
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        exit()
+    if 'code' in sys.argv:
+        thread_share_code(tasks)
+    if 'makering' in sys.argv:
+        generate_rings()
+    if 'share_ring' in sys.argv:
+        thread_share_ring()
+    if 'install' in sys.argv:
+        thread_install()
+    if 'environment' in sys.argv:
+        thread_cmd(cmds_python)
+    if 'reboot' in sys.argv:
+        thread_reboot()

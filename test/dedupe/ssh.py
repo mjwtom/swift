@@ -10,18 +10,18 @@ class SSH(object):
         self.ip = ip
         self.port = port
         self.logfile = logfile
+        self.client = None
         if connect:
             self.connect()
-        else:
-            self.client = None
 
     def connect(self):
-        self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.client.connect(hostname=self.ip,
-                            port=self.port,
-                            username=self.usr,
-                            password=self.pwd)
+        if not self.client:
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client.connect(hostname=self.ip,
+                                port=self.port,
+                                username=self.usr,
+                                password=self.pwd)
 
     def close(self):
         if self.client:
@@ -33,7 +33,7 @@ class SSH(object):
             trans = self.client.get_transport()
             session = trans.open_session()
             session.set_combine_stderr(True)
-            cmd = cmd.stripe()
+            cmd = cmd.strip()
             if cmd.startswith('sudo') and (get_pty==False):
                 print 'warning: when use sudo, get_pty should be set'
             if get_pty:
@@ -98,3 +98,33 @@ class SSH(object):
             for f in files:
                 sftp.get(os.path.join(remote, f), os.path.join(local, f))
         trans.close()
+
+
+def run_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmd=None):
+    client = SSH(usr=usr, ip=ip, pwd=pwd, port=port)
+    cmd = cmd.strip()
+    if cmd.startswith('sudo'):
+        stdin, stdout, stderr = client.execute(cmd, True, old_pty=True)
+        stdin.write(pwd+'\n')
+        stdin.flush()
+    else:
+        stdin, stdout, stderr = client.execute(cmd)
+    for l in stdout:
+        print 'stdout: %s' % l.strip()
+    for l in stderr:
+        print 'stderr: %s' % l.strip()
+
+
+def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
+    for cmd in cmds:
+        run_cmd(usr, ip, port, pwd, cmd)
+
+
+def upload(usr='root', ip='127.0.0.1', port=22, pwd=None, src=None, dst=None):
+    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
+    client.transport(src, dst, 'put', True)
+
+
+def uploads(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
+    for src, dst in tasks:
+        upload(usr, ip,  port, pwd, src, dst)

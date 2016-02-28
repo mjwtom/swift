@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from test.dedupe.ssh import SSH
+from test.dedupe.ssh import upload
 
 ip = '222.30.48.9'
 usr = 'mjwtom'
@@ -11,5 +11,4 @@ pwd = 'missing1988'
 src_dir='/home/mjwtom/PycharmProjects/swift/'
 dst_dir = '/home/mjwtom/swift/'
 
-client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-client.transport(src_dir, dst_dir, 'put', True)
+upload(usr, ip, port, pwd, src_dir, dst_dir)
