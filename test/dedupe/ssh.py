@@ -110,9 +110,9 @@ def run_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmd=None):
     else:
         stdin, stdout, stderr = client.execute(cmd)
     for l in stdout:
-        print 'stdout: %s' % l.strip()
+        print '%s stdout: %s' % (ip, l.strip())
     for l in stderr:
-        print 'stderr: %s' % l.strip()
+        print '%s stderr: %s' % (ip, l.strip())
 
 
 def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):

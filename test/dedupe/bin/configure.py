@@ -5,7 +5,6 @@
 from threading import Thread
 import sys
 from test.dedupe.ssh import SSH, run_cmds, uploads, run_cmd, upload
-from remakerings import generate_rings
 
 
 ips = ['220.113.20.150',
@@ -106,7 +105,7 @@ def thread_share_code(tasks=None):
 def thread_share_ring():
     threads = []
     src = '/etc/swift/'
-    dst = '/home/m/mjwtom/swift'
+    dst = '/home/m/mjwtom/swift-etc'
     for ip in ips:
         args = (usr, ip, port, pwd, src, dst)
         threads.append(Thread(target=upload, args=args))
@@ -114,11 +113,12 @@ def thread_share_ring():
         thread.start()
     for thread in threads:
         thread.join()
-    cmd = 'sudo -k rm -rf /etc/swift/; sudo mv -f /home/m/mjwtom/swift/ /ect/;'
+    cmds = ['sudo -k rm -rf /etc/swift',
+            'sudo -k mv /home/m/mjwtom/swift-etc /etc/swift -f']
     threads = []
     for ip in ips:
-        args = (usr, ip, port, pwd, cmd)
-        threads.append(Thread(target=run_cmd, args=args))
+        args = (usr, ip, port, pwd, cmds)
+        threads.append(Thread(target=run_cmds, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -135,6 +135,16 @@ def thread_install():
         thread.start()
     for thread in threads:
         thread.join()
+
+
+def make_rings():
+    cmd = 'sudo -k /home/mjwtom/bin/python /home/mjwtom/swift/test/dedupe/bin/remakerings.py'
+    run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
+
+
+def copy_etc():
+    cmd = 'sudo -k cp -rf /home/mjwtom/swift/test/dedupe/swift /etc/'
+    run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
 
 softwares_swift = ['curl',
@@ -209,8 +219,10 @@ if __name__ == '__main__':
         exit()
     if 'code' in sys.argv:
         thread_share_code(tasks)
-    if 'makering' in sys.argv:
-        generate_rings()
+    if 'copy_etc' in sys.argv:
+        copy_etc()
+    if 'make_ring' in sys.argv:
+        make_rings()
     if 'share_ring' in sys.argv:
         thread_share_ring()
     if 'install' in sys.argv:

@@ -1,6 +1,6 @@
-
 import os
 import subprocess
+
 
 def generate_rings():
     print (os.environ["PATH"])
@@ -25,8 +25,10 @@ def generate_rings():
     if not os.path.exists(ETC_SWIFT):
         os.makedirs(ETC_SWIFT)
     if os.path.exists(ETC_SWIFT+'/backups'):
-        cmd = 'rm -rf %s/backups' % ETC_SWIFT
-        os.system(cmd)
+        cmd = ['rm',
+               ' -rf',
+              '%s/backups' % ETC_SWIFT]
+        subprocess.call(cmd)
     print 'current work path:%s' % os.getcwd()
     os.chdir(ETC_SWIFT)
     print 'change work path to:%s' % os.getcwd()

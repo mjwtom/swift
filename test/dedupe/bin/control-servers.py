@@ -1,11 +1,10 @@
 #!/usr/bin/python
 import sys
-from test.dedupe.ssh import run_cmd
+from test.dedupe.ssh import run_cmd, run_cmds
 from threading import Thread
 
 
-ips = ['220.113.20.150',
-       '220.113.20.142',
+ips = ['220.113.20.142',
        '220.113.20.144',
        '220.113.20.151',
        '220.113.20.120',
@@ -33,11 +32,11 @@ def start_all():
         for server in server_names:
             print 'starting %s on %s' % (server, ip)
             cmd = '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
-                  '/home/m/mjwtom/swift/dedupe/swift/%s.conf' % server
+                  '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)
             args = (usr, ip, port, pwd, cmd)
             servers[server].append(Thread(target=run_cmd, args=args))
-    cmd = '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-proxy-server ' \
-          '/home/m/mjwtom/swift/dedupe/swift/proxy-server.conf'
+    cmd = '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
+          '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf'
     args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
     servers['proxy-server'].append(Thread(target=run_cmd, args=args))
     threads = [server for server_name, serverlist in servers.items() for server in serverlist]
@@ -47,14 +46,17 @@ def start_all():
         thread.join()
 
 
-def stop_all():
+def kill_all():
     threads = []
     servers = ['object-server', 'container-server', 'account-server', 'proxy-server']
-    for server in servers:
-        print 'killing the servers: %s' % server
-        cmd = 'ps -aux | grep swift-%s | grep -v grep | cut -c 9-15 | xargs kill -s 9' % server
-        args = (cmd,)
-        threads.append(Thread(target=run_cmd, args=args))
+    cmds = []
+    for name in servers:
+        cmd = 'ps -aux | grep swift-%s | grep -v grep | cut -c 9-15 | xargs kill -s 9' % name
+        cmds.append(cmd)
+    for ip in ips:
+        print 'killing the servers in node %s' % ip
+        args = (usr, ip, port, pwd, cmds)
+        threads.append(Thread(target=run_cmds, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:

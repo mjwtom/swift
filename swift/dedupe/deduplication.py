@@ -1,7 +1,7 @@
 from pybloom import BloomFilter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.dedupe.state import DedupeState
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, get_logger
 from swift.common.swob import Request
 from hashlib import md5
 import sqlite3
@@ -16,7 +16,7 @@ from directio import read, write
 
 
 class ChunkStore(object):
-    def __init__(self, conf, app):
+    def __init__(self, conf, app, logger=None):
         self.app = app
         self.object_controller = None
         self.req = None
@@ -46,6 +46,19 @@ class ChunkStore(object):
                 self.current_continue_dup = 0
             else:
                 self.index = DiskHashTable(conf)
+        if logger is None:
+            log_conf = dict()
+            for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
+                    'log_udp_port', 'log_statsd_host', 'log_statsd_port',
+                    'log_statsd_default_sample_rate',
+                    'log_statsd_sample_rate_factor',
+                    'log_statsd_metric_prefix'):
+                value = conf.get('dedupe_' + key, conf.get(key, None))
+                if value:
+                    log_conf[key] = value
+            self.logger = get_logger(log_conf, log_route='deduplication')
+        else:
+            self.logger = logger
 
     def _add2cache(self, cache, key, value):
         cache[key] = value
