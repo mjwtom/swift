@@ -214,6 +214,33 @@ cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
                'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop']
 
 
+def thread_setup_log():
+    threads = []
+    src = '/etc/rsyslog.conf'
+    dst = '/home/m/mjwtom/rsyslog.conf'
+    for ip in ips:
+        args = (usr, ip, port, pwd, src, dst)
+        threads.append(Thread(target=upload, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    threads = []
+    cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
+            'sudo -k chown -R root:adm /var/log/swift',
+            'sudo -k chmod -R g+w /var/log/swift'
+            'sudo -k mv -f /home/m/mjwtom/rsyslog.conf /etc/',
+            'sudo service rsyslog restart']
+    for ip in ips:
+        args = (usr, ip, port, pwd, cmds)
+        threads.append(Thread(target=run_cmds, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         exit()
@@ -227,6 +254,8 @@ if __name__ == '__main__':
         thread_share_ring()
     if 'install' in sys.argv:
         thread_install()
+    if 'log' in sys.argv:
+        thread_setup_log()
     if 'environment' in sys.argv:
         thread_cmd(cmds_python)
     if 'reboot' in sys.argv:

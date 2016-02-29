@@ -28,7 +28,7 @@ class SSH(object):
             self.client.close()
             self.client = None
 
-    def execute(self, cmd= None, get_pty=False, old_pty=False):
+    def execute(self, cmd=None, get_pty=False, old_pty=False):
         if old_pty:
             trans = self.client.get_transport()
             session = trans.open_session()
