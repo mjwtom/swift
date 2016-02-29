@@ -1,6 +1,6 @@
 import paramiko
 import os
-import stat
+from stat import S_ISDIR
 
 
 class SSH(object):
@@ -52,13 +52,17 @@ class SSH(object):
     def transport(self, local, remote, method='put', rm_old=False):
 
         def recur_put(sftp, local, remote):
+            if not os.path.exists(local):
+                print 'local paht does not exist'
+            mode = os.stat(local).st_mode & 0777
             if os.path.isfile(local):
                 print 'uploading %s' % local
                 sftp.put(local, remote)
+                sftp.chmod(remote, mode)
             elif os.path.isdir(local):
                 try:
                     print 'making directory %s' % local
-                    sftp.mkdir(remote)
+                    sftp.mkdir(remote, mode=mode)
                 except IOError as e:
                     print '(assuming ', remote, 'exists)', e
                 files = os.listdir(local)
@@ -69,7 +73,7 @@ class SSH(object):
 
         def rmtree(sftp, remotepath):
             remote_tate = sftp.lstat(remotepath)
-            if stat.S_ISDIR(remote_tate.st_mode):
+            if S_ISDIR(remote_tate.st_mode):
                 for file in sftp.listdir(remotepath):
                     subpath = remotepath + '/' + file
                     print 'removing directory %s' % subpath

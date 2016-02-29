@@ -142,7 +142,7 @@ def make_rings():
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
 
-def copy_etc():
+def replace_etc():
     cmd = 'sudo -k cp -rf /home/mjwtom/swift/test/dedupe/swift /etc/'
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
@@ -219,8 +219,8 @@ if __name__ == '__main__':
         exit()
     if 'code' in sys.argv:
         thread_share_code(tasks)
-    if 'copy_etc' in sys.argv:
-        copy_etc()
+    if 'replace_etc' in sys.argv:
+        replace_etc()
     if 'make_ring' in sys.argv:
         make_rings()
     if 'share_ring' in sys.argv:

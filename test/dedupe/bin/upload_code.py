@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from test.dedupe.ssh import upload
+from test.dedupe.ssh import uploads
 
 ip = '222.30.48.9'
 usr = 'mjwtom'
 port = 9030
 pwd = 'missing1988'
 
-src_dir='/home/mjwtom/PycharmProjects/swift/'
-dst_dir = '/home/mjwtom/swift/'
+tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/'),
+         ('/home/mjwtom/PycharmProjects/python-swiftclient/', '/home/mjwtom/python-swiftclient/')]
 
-upload(usr, ip, port, pwd, src_dir, dst_dir)
+uploads(usr, ip, port, pwd, tasks)

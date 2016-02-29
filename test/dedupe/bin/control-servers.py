@@ -57,6 +57,8 @@ def kill_all():
         print 'killing the servers in node %s' % ip
         args = (usr, ip, port, pwd, cmds)
         threads.append(Thread(target=run_cmds, args=args))
+    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+    threads.append(Thread(target=run_cmds, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:

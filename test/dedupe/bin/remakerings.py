@@ -20,13 +20,13 @@ def generate_rings():
            '220.113.20.129',
            '220.113.20.131']
 
-    dev = '/home/m/mjwtom/swift-data/'
+    dev = 'sdb1'
     ETC_SWIFT='/etc/swift'
     if not os.path.exists(ETC_SWIFT):
         os.makedirs(ETC_SWIFT)
     if os.path.exists(ETC_SWIFT+'/backups'):
         cmd = ['rm',
-               ' -rf',
+               '-rf',
               '%s/backups' % ETC_SWIFT]
         subprocess.call(cmd)
     print 'current work path:%s' % os.getcwd()
@@ -39,7 +39,10 @@ def generate_rings():
             continue
         shotname, extentsion = os.path.splitext(file)
         if (extentsion == '.builder') or (extentsion == '.gz'):
-            os.remove(path)
+            try:
+                os.remove(path)
+            except Exception as e:
+                print e
 
     for builder, port in [('object.builder', 6000),
                           ('object-1.builder', 6000),
