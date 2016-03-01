@@ -21,7 +21,7 @@ def start_all():
             args = (usr, ip, port, pwd, cmds)
             servers[server].append(Thread(target=run_cmds, args=args))
     print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
-    cmd = ['sudo -k service iptables stop',
+    cmds = ['sudo -k service iptables stop',
            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
     args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)

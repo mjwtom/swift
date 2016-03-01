@@ -10,6 +10,22 @@ from nodes import ips, pwd, usr, port
 
 def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=None):
     print ip
+
+    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
+    cmd = 'sudo -k rpm -Uvh http://pkgs.repoforge.org/rpmforge-release/rpmforge-release-0.5.3-1.el6.rf.x86_64.rpm'
+    stdin, stdout, stderr = client.execute(cmd+'\n', True, old_pty=True)
+    if cmd.startswith('sudo'):
+        stdin.write(pwd+'\n')
+        stdin.flush()
+    for l in stdout:
+        print 'stdout: %s' % l.strip()
+        if 'Total' in l:
+            stdin.write('Y\n')
+            stdin.flush()
+    for l in stderr:
+        print 'stderr: %s' % l.strip()
+        return
+
     client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
     cmd = 'sudo -k yum update'
     stdin, stdout, stderr = client.execute(cmd+'\n', True, old_pty=True)
@@ -52,7 +68,7 @@ def thread_install_software(softwares):
         thread.join()
 
 
-def thread_cmd(cmds):
+def thread_cmds(cmds):
     threads = []
     for ip in ips:
         args = (usr, ip, port, pwd, cmds)
@@ -114,6 +130,10 @@ def thread_install():
     for ip in ips:
         args = (usr, ip, port, pwd, cmd)
         threads.append(Thread(target=run_cmd, args=args))
+
+    cmd = 'cd /home/mjwtom/swift; /home/mjwtom/bin/python setup.py develop;'
+    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
+    threads.append(Thread(target=run_cmd, args=args))
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -131,26 +151,27 @@ def replace_etc_swift():
 
 
 softwares_swift = ['curl',
-             'gcc',
-             'memcached',
-             'rsync',
-             'sqlite',
-             'xfsprogs',
-             'git-core',
-             'libffi-devel',
-             'xinetd',
-             'liberasurecode-devel',
-             'python-setuptools',
-             'python-coverage'
-             'python-devel python-nose',
-             'pyxattr',
-             'python-eventlet',
-             'python-greenlet',
-             'python-paste-deploy',
-             'python-netifaces',
-             'python-pip',
-             'python-dns',
-             'python-mock']
+                    'gcc',
+                    'gcc-c++'
+                    'memcached',
+                    'rsync',
+                    'sqlite',
+                    'xfsprogs',
+                    'git-core',
+                    'libffi-devel',
+                    'xinetd',
+                    'liberasurecode-devel',
+                    'python-setuptools',
+                    'python-coverage'
+                    'python-devel python-nose',
+                    'pyxattr',
+                    'python-eventlet',
+                    'python-greenlet',
+                    'python-paste-deploy',
+                    'python-netifaces',
+                    'python-pip',
+                    'python-dns',
+                    'python-mock']
 
 softwares_python = ['zlib-devel',
              'bzip2-devel',
@@ -164,6 +185,8 @@ cmds = ['sudo -k cp -r /home/m/mjwtom/CentOS-Base.repo /etc/yum.repos.d/CentOS-B
 ips = ['222.30.48.9']
 port = 9150
 '''
+
+cmd_mkdir_mjwtom = ['mkdir /home/m/mjwtom']
 
 tasks_before = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
          ('/home/mjwtom/Python-2.7.11.tgz', '/home/m/mjwtom/Python-2.7.11.tgz'),
@@ -206,22 +229,38 @@ def setup_log():
     run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
+def all_cmds():
+    thread_install_software(softwares_swift)
+    thread_install_software(softwares_python)
+    thread_cmds(cmd_mkdir_mjwtom)
+    thread_share_code(tasks_before)
+    thread_cmds(cmds_python)
+    replace_etc_swift()
+    thread_install()
+    make_rings()
+    thread_share_ring()
+
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
+        exit()
+    if 'all' in sys.argv:
+        all_cmds()
         exit()
     if 'code' in sys.argv:
         thread_share_code(tasks)
     if 'replace_etc' in sys.argv:
         replace_etc_swift()
+    if 'install' in sys.argv:
+        thread_install()
     if 'make_ring' in sys.argv:
         make_rings()
     if 'share_ring' in sys.argv:
         thread_share_ring()
-    if 'install' in sys.argv:
-        thread_install()
     if 'setup_log' in sys.argv:
         setup_log()
     if 'environment' in sys.argv:
-        thread_cmd(cmds_python)
+        thread_cmds(cmds_python)
     if 'reboot' in sys.argv:
         thread_reboot()

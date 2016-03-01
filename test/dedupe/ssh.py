@@ -57,14 +57,17 @@ class SSH(object):
             mode = os.stat(local).st_mode & 0777
             if os.path.isfile(local):
                 print 'uploading %s' % local
-                sftp.put(local, remote)
-                sftp.chmod(remote, mode)
+                try:
+                    sftp.put(local, remote)
+                    sftp.chmod(remote, mode)
+                except IOError as e:
+                    print '(assuming ', remote, 'parent directory does not exists)', e
             elif os.path.isdir(local):
                 try:
                     print 'making directory %s' % local
                     sftp.mkdir(remote, mode=mode)
                 except IOError as e:
-                    print '(assuming ', remote, 'exists)', e
+                    print '(assuming ', remote, 'parent directory does not exists)', e
                 files = os.listdir(local)
                 for f in files:
                     local_subpath = os.path.join(local, f)
@@ -119,7 +122,7 @@ def run_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmd=None):
         for l in stderr:
             print '%s stderr: %s' % (ip, l.strip())
     except Exception as e:
-        print 'cannot execute the command %s on %s, error:' (cmd, ip), e
+        print 'cannot execute the command %s on %s, error:' % (cmd, ip), e
 
 
 def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
@@ -132,7 +135,7 @@ def upload(usr='root', ip='127.0.0.1', port=22, pwd=None, src=None, dst=None):
         client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
         client.transport(src, dst, 'put', True)
     except Exception as e:
-        print 'cannot transport the file %s to %s, error:' (src, ip), e
+        print 'cannot transport the file %s to %s, error:' % (src, ip), e
 
 
 def uploads(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
