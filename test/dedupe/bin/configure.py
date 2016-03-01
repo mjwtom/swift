@@ -142,7 +142,7 @@ def make_rings():
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
 
-def replace_etc():
+def replace_etc_swift():
     cmd = 'sudo -k cp -rf /home/mjwtom/swift/test/dedupe/swift /etc/'
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
@@ -214,31 +214,13 @@ cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
                'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop']
 
 
-def thread_setup_log():
-    threads = []
-    src = '/etc/rsyslog.conf'
-    dst = '/home/m/mjwtom/rsyslog.conf'
-    for ip in ips:
-        args = (usr, ip, port, pwd, src, dst)
-        threads.append(Thread(target=upload, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    threads = []
+def setup_log():
     cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
             'sudo -k chown -R root:adm /var/log/swift',
             'sudo -k chmod -R g+w /var/log/swift'
-            'sudo -k mv -f /home/m/mjwtom/rsyslog.conf /etc/',
+            'sudo -k cp -f /home/m/mjwtom/swift/test/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/',
             'sudo service rsyslog restart']
-    for ip in ips:
-        args = (usr, ip, port, pwd, cmds)
-        threads.append(Thread(target=run_cmds, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
 if __name__ == '__main__':
@@ -247,15 +229,15 @@ if __name__ == '__main__':
     if 'code' in sys.argv:
         thread_share_code(tasks)
     if 'replace_etc' in sys.argv:
-        replace_etc()
+        replace_etc_swift()
     if 'make_ring' in sys.argv:
         make_rings()
     if 'share_ring' in sys.argv:
         thread_share_ring()
     if 'install' in sys.argv:
         thread_install()
-    if 'log' in sys.argv:
-        thread_setup_log()
+    if 'setup_log' in sys.argv:
+        setup_log()
     if 'environment' in sys.argv:
         thread_cmd(cmds_python)
     if 'reboot' in sys.argv:

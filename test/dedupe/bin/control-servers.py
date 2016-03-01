@@ -31,14 +31,16 @@ def start_all():
     for ip in ips:
         for server in server_names:
             print 'starting %s on %s' % (server, ip)
-            cmd = '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
-                  '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)
+            cmd = ['sudo -k service iptables stop',
+                   '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
+                  '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)]
             args = (usr, ip, port, pwd, cmd)
-            servers[server].append(Thread(target=run_cmd, args=args))
-    cmd = '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
-          '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf'
+            servers[server].append(Thread(target=run_cmds, args=args))
+    cmd = ['sudo -k service iptables stop',
+           '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
+          '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
     args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
-    servers['proxy-server'].append(Thread(target=run_cmd, args=args))
+    servers['proxy-server'].append(Thread(target=run_cmds, args=args))
     threads = [server for server_name, serverlist in servers.items() for server in serverlist]
     for thread in threads:
         thread.start()
