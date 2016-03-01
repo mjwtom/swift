@@ -6,6 +6,10 @@ ip = '127.0.0.1'
 SWIFT_ETC_DIR='/etc/swift/'
 DATA_DIR='/home/mjwtom/swift-data/'
 
+print (os.environ["PATH"])
+os.environ["PATH"] = '/home/mjwtom/install/python/bin' + ":" + os.environ["PATH"]
+print (os.environ["PATH"])
+
 print os.getcwd()
 os.chdir(SWIFT_ETC_DIR)
 

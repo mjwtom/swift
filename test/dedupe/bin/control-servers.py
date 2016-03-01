@@ -2,23 +2,7 @@
 import sys
 from test.dedupe.ssh import run_cmd, run_cmds
 from threading import Thread
-
-
-ips = ['220.113.20.142',
-       '220.113.20.144',
-       '220.113.20.151',
-       '220.113.20.120',
-       '220.113.20.121',
-       '220.113.20.122',
-       '220.113.20.123',
-       '220.113.20.124',
-       '220.113.20.127',
-       '220.113.20.128',
-       '220.113.20.129',
-       '220.113.20.131']
-usr = 'm'
-port = 22
-pwd = 'softraid'
+from nodes import ips, usr, pwd, port
 
 
 def start_all():
@@ -31,15 +15,16 @@ def start_all():
     for ip in ips:
         for server in server_names:
             print 'starting %s on %s' % (server, ip)
-            cmd = ['sudo -k service iptables stop',
+            cmds = ['sudo -k service iptables stop',
                    '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
                   '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)]
-            args = (usr, ip, port, pwd, cmd)
+            args = (usr, ip, port, pwd, cmds)
             servers[server].append(Thread(target=run_cmds, args=args))
+    print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
     cmd = ['sudo -k service iptables stop',
            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
-    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
+    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
     servers['proxy-server'].append(Thread(target=run_cmds, args=args))
     threads = [server for server_name, serverlist in servers.items() for server in serverlist]
     for thread in threads:

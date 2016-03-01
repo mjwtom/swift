@@ -21,13 +21,15 @@ def start_all():
     for x in range(1, 5):
         for server in server_names:
             print 'starting %s %d' % (server, x)
-            cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-%s ' \
-                  '/home/mjwtom/PycharmProjects/swift/test/dedupe-aio/swift/%s/%d.conf' \
+            cmd = '/home/mjwtom/bin/python ' \
+                  '/home/mjwtom/swift/bin/swift-%s ' \
+                  '/home/mjwtom/swift/test/dedupe-aio/swift/%s/%d.conf' \
                   % (server, server, x)
             args = (usr, ip, port, password, cmd)
             servers[server].append(Thread(target=run_cmd, args=args))
-    cmd = '/home/mjwtom/PycharmProjects/swift/bin/swift-proxy-server ' \
-          '/home/mjwtom/PycharmProjects/swift/test/dedupe-aio/swift/proxy-server.conf'
+    cmd = '/home/mjwtom/bin/python ' \
+          '/home/mjwtom/swift/bin/swift-proxy-server ' \
+          '/home/mjwtom/swift/test/dedupe-aio/swift/proxy-server.conf'
     args = (usr, ip, port, password, cmd)
     servers['proxy-server'].append(Thread(target=run_cmd, args=args))
     threads = [server for server_name, serverlist in servers.items() for server in serverlist]

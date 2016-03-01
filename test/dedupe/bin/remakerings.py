@@ -1,24 +1,12 @@
 import os
 import subprocess
+from nodes import ips
 
 
 def generate_rings():
     print (os.environ["PATH"])
     os.environ["PATH"] = '/home/mjwtom/install/python/bin' + ":" + os.environ["PATH"]
     print (os.environ["PATH"])
-
-    ips = ['220.113.20.142', #'220.113.20.150' used for debug, so we have 12 nodes, I like 12 than 13
-           '220.113.20.144',
-           '220.113.20.151',
-           '220.113.20.120',
-           '220.113.20.121',
-           '220.113.20.122',
-           '220.113.20.123',
-           '220.113.20.124',
-           '220.113.20.127',
-           '220.113.20.128',
-           '220.113.20.129',
-           '220.113.20.131']
 
     dev = 'sdb1'
     ETC_SWIFT='/etc/swift'

@@ -105,18 +105,21 @@ class SSH(object):
 
 
 def run_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmd=None):
-    client = SSH(usr=usr, ip=ip, pwd=pwd, port=port)
-    cmd = cmd.strip()
-    if cmd.startswith('sudo'):
-        stdin, stdout, stderr = client.execute(cmd, True, old_pty=True)
-        stdin.write(pwd+'\n')
-        stdin.flush()
-    else:
-        stdin, stdout, stderr = client.execute(cmd)
-    for l in stdout:
-        print '%s stdout: %s' % (ip, l.strip())
-    for l in stderr:
-        print '%s stderr: %s' % (ip, l.strip())
+    try:
+        client = SSH(usr=usr, ip=ip, pwd=pwd, port=port)
+        cmd = cmd.strip()
+        if cmd.startswith('sudo'):
+            stdin, stdout, stderr = client.execute(cmd, True, old_pty=True)
+            stdin.write(pwd+'\n')
+            stdin.flush()
+        else:
+            stdin, stdout, stderr = client.execute(cmd)
+        for l in stdout:
+            print '%s stdout: %s' % (ip, l.strip())
+        for l in stderr:
+            print '%s stderr: %s' % (ip, l.strip())
+    except Exception as e:
+        print 'cannot execute the command %s on %s, error:' (cmd, ip), e
 
 
 def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
@@ -125,8 +128,11 @@ def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
 
 
 def upload(usr='root', ip='127.0.0.1', port=22, pwd=None, src=None, dst=None):
-    client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-    client.transport(src, dst, 'put', True)
+    try:
+        client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
+        client.transport(src, dst, 'put', True)
+    except Exception as e:
+        print 'cannot transport the file %s to %s, error:' (src, ip), e
 
 
 def uploads(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):

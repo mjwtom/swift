@@ -5,24 +5,7 @@
 from threading import Thread
 import sys
 from test.dedupe.ssh import SSH, run_cmds, uploads, run_cmd, upload
-
-
-ips = ['220.113.20.150',
-       '220.113.20.142',
-       '220.113.20.144',
-       '220.113.20.151',
-       '220.113.20.120',
-       '220.113.20.121',
-       '220.113.20.122',
-       '220.113.20.123',
-       '220.113.20.124',
-       '220.113.20.127',
-       '220.113.20.128',
-       '220.113.20.129',
-       '220.113.20.131']
-usr = 'm'
-port = 22
-pwd = 'softraid'
+from nodes import ips, pwd, usr, port
 
 
 def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=None):
