@@ -51,6 +51,13 @@ def stop_all():
         thread.join()
 
 
+def clean_dir():
+    cmd = 'rm -rf'
+    for i in range(1, 5):
+        dir = '/home/mjwtom/swift-data/%d/sdb%d/*' % (i, i)
+        cmd = cmd + ' ' + dir
+    run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd);
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         exit()
@@ -59,3 +66,5 @@ if __name__ == '__main__':
         start_all()
     elif run_type == 'stop':
         stop_all()
+    elif run_type == 'clean':
+        clean_dir()

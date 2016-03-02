@@ -150,6 +150,29 @@ def replace_etc_swift():
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
 
+def setup_log():
+    cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
+            'sudo -k chown -R root:adm /var/log/swift',
+            'sudo -k chmod -R g+w /var/log/swift'
+            'sudo -k cp -f /home/m/mjwtom/swift/test/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/',
+            'sudo service rsyslog restart']
+    run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+
+
+def thread_file_system():
+    threads = []
+    cmd = 'sudo -k cat /etc/fstab'
+    for ip in ips:
+        args = (usr, ip, port, pwd, cmd)
+        threads.append(Thread(target=run_cmd, args=args))
+
+    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
+    threads.append(Thread(target=run_cmd, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
 softwares_swift = ['curl',
                     'gcc',
                     'gcc-c++'
@@ -220,15 +243,6 @@ cmds_python = ['rm /home/m/mjwtom/Python-2.7.11/ -rf',
                'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop']
 
 
-def setup_log():
-    cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
-            'sudo -k chown -R root:adm /var/log/swift',
-            'sudo -k chmod -R g+w /var/log/swift'
-            'sudo -k cp -f /home/m/mjwtom/swift/test/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/',
-            'sudo service rsyslog restart']
-    run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
-
-
 def all_cmds():
     thread_install_software(softwares_swift)
     thread_install_software(softwares_python)
@@ -248,6 +262,8 @@ if __name__ == '__main__':
     if 'all' in sys.argv:
         all_cmds()
         exit()
+    if 'file' in sys.argv:
+        thread_file_system()
     if 'code' in sys.argv:
         thread_share_code(tasks)
     if 'replace_etc' in sys.argv:
