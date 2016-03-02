@@ -1,8 +1,8 @@
 #!/usr/bin/python
 import sys
 from test.dedupe.ssh import run_cmd
-
 from threading import Thread
+import os
 
 ip = '127.0.0.1'
 port = 22
@@ -54,7 +54,10 @@ def stop_all():
 def clean_dir():
     cmd = 'rm -rf'
     for i in range(1, 5):
-        dir = '/home/mjwtom/swift-data/%d/sdb%d/*' % (i, i)
+        dir = '/home/mjwtom/swift-data/%d/sdb%d' % (i, i)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        dir = dir + '/*'
         cmd = cmd + ' ' + dir
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd);
 
