@@ -117,10 +117,13 @@ def run_cmd(usr='root', ip='127.0.0.1', port=22, pwd=None, cmd=None):
             stdin.flush()
         else:
             stdin, stdout, stderr = client.execute(cmd)
-        for l in stdout:
-            print '%s stdout: %s' % (ip, l.strip())
-        for l in stderr:
-            print '%s stderr: %s' % (ip, l.strip())
+        try:
+            for l in stdout:
+                print '%s stdout: %s' % (ip, l.strip())
+            for l in stderr:
+                print '%s stderr: %s' % (ip, l.strip())
+        except Exception as e:
+            print 'cannot read the output %s on %s, error:' % (cmd, ip), e
     except Exception as e:
         print 'cannot execute the command %s on %s, error:' % (cmd, ip), e
 
