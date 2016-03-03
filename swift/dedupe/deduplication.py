@@ -1,6 +1,6 @@
 from pybloom import BloomFilter
 from swift.dedupe.dedupe_container import DedupeContainer
-from swift.dedupe.state import DedupeState
+from swift.dedupe.summary import DedupeSummary
 from swift.common.utils import config_true_value, get_logger
 from swift.common.swob import Request
 from hashlib import md5
@@ -28,7 +28,7 @@ class ChunkStore(object):
         self.dc_cache = LRU(int(conf.get('dc_cache', 4)))
         self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
-        self.state = DedupeState()
+        self.summary = DedupeSummary()
         self.next_dc_id = int(conf.get('next_dc_id', 0))
         self.container = None
         self.new_container()
@@ -172,6 +172,8 @@ class ChunkStore(object):
             self.new_container()
             self._store_container_fp(full_container)
             self._store_container(full_container)
+            info = self.summary.format_state()
+            self.logger.info(info)
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):
@@ -182,6 +184,8 @@ class ChunkStore(object):
             return
         self.current_continue_dup += 1
         if self._get_from_cache(self.fp_cache, fp):
+            self.summary.add_dup_size(len(chunk)) # for summary
+            self.summary.incre_dupe_chunk() # for summary
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
@@ -192,6 +196,8 @@ class ChunkStore(object):
     def lazy_callback(self, result):
         load_container_set = set()
         for fp, container_id, clusters in result:
+            # if a fingperint is duplicate, container_id not none
+            # only if it is also has cluster, the system loads fingerprints
             if container_id and clusters:
                 if container_id not in load_container_set:
                     self._fill_cache_with_container_fp(container_id)
@@ -199,11 +205,15 @@ class ChunkStore(object):
                 for cluster in clusters:
                     for fp, chunk in cluster.items():
                         if self._get_from_cache(self.fp_cache, fp):
+                            self.summary.add_dup_size(len(chunk)) # for summary
+                            self.summary.incre_dupe_chunk() # for summary
                             self.index.buf_remove(fp)
                             del cluster[fp]
             else:
+                # The fingerprint is unique, we need to store the chunk
+                # The for loop is used to find the chunk, once we found, break
                 for cluster in clusters:
-                    chunk = cluster.get(fp)
+                    chunk = cluster.get(fp) # find the chunk
                     if chunk:
                         break
                 container_id = self.store(fp, chunk)
@@ -214,9 +224,13 @@ class ChunkStore(object):
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
             if self._get_from_cache(self.fp_cache, fp):
+                self.summary.add_dup_size(len(chunk)) # for summary
+                self.summary.incre_dupe_chunk() # for summary
                 return
             container_id = self.index.get(fp)
             if container_id:
+                self.summary.add_dup_size(len(chunk)) # for summary
+                self.summary.incre_dupe_chunk() # for summary
                 self._fill_cache_with_container_fp(container_id)
                 return
         self.bf.add(fp)
@@ -224,8 +238,8 @@ class ChunkStore(object):
         self.index.put(fp, container_id)
 
     def put(self, fp, chunk, obj_controller, req):
-        info = 'fingerprint: %s ' % fp
-        self.logger.info(info)
+        self.summary.add_total_size(len(chunk)) # for summary
+        self.summary.incre_total_chunk() # for summary
         self.object_controller = obj_controller
         self.req = req
         if self.sqlite_index:

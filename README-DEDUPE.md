@@ -40,3 +40,16 @@ On disk hash table and the lazy method use the same on disk data structure.
 The different is that the lazy method buffers the fingerprints instead of
 looking up them on disk immediately. For more information, please look the
 lazy deduplication paper.
+
+
+## Rsyslog
+In the template, the system is configured to send log information to the rsyslog
+via the UDP soccket. So in the rsyslog configuration file, we need to open the
+port for it.
+
+The deduplication engine records the deduplciation information into the log.
+For every container it record all the information once. It is configurable.
+
+
+## Bugs I made
+Remember to start the memcached server before start the cluster.
