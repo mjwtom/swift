@@ -172,8 +172,9 @@ class ChunkStore(object):
             self.new_container()
             self._store_container_fp(full_container)
             self._store_container(full_container)
-            info = self.summary.format_state()
-            self.logger.info(info)
+            info = self.summary.get_info()
+            for entry in info:
+                self.logger.info(entry)
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):

@@ -28,12 +28,11 @@ class DedupeSummary(object):
     def incre_download_chunk(self):
         self.total_download_chunk += 1
 
-    def format_state(self):
+    def get_info(self):
         info = ['total size: %d' % self.total_size,
                 'total chunk: %d' % self.total_chunk,
                 'duplicate size: %d' % self.dupe_size,
                 'duplicate chunk: %d' % self.dupe_chunk,
                 'total download size %d' % self.total_download,
                 'total download chunk %d' % self.total_download_chunk]
-        info = '\n'.join(info)
         return info

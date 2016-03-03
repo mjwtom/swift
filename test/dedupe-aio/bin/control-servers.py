@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import sys
-from DedupeTest.dedupe.ssh import run_cmd
+from test.dedupe.ssh import run_cmd
 from threading import Thread
 import os
 
@@ -57,7 +57,7 @@ def clean_dir():
         dir = '/home/mjwtom/swift-data/%d/sdb%d' % (i, i)
         if not os.path.exists(dir):
             os.makedirs(dir)
-        dir = dir + '/*'
+        dir += '/*'
         cmd = cmd + ' ' + dir
     run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd);
 
@@ -90,14 +90,19 @@ def start_all_except(no_server, no_id):
     for thread in threads:
         thread.join()
 
+except_sever = 'proxy-server'
+except_num = 1
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         exit()
     run_type = sys.argv[1]
     if run_type == 'start':
+        start_all_except(except_sever, except_num)
+    if run_type == 'reset':
         stop_all()
         clean_dir()
-        start_all_except('proxy-server', 1)
+        start_all_except(except_sever, except_num)
     elif run_type == 'stop':
         stop_all()
     elif run_type == 'clean':
