@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import sys
-from test.dedupe.ssh import run_cmd
+from DedupeTest.dedupe.ssh import run_cmd
 from threading import Thread
 import os
 
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     if run_type == 'start':
         stop_all()
         clean_dir()
-        start_all_except('nonono', 1)
+        start_all_except('proxy-server', 1)
     elif run_type == 'stop':
         stop_all()
     elif run_type == 'clean':

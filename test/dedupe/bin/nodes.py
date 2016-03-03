@@ -17,7 +17,6 @@ ips_vm = ['220.113.20.141',
           '220.113.20.144']
 
 ips = ips_nbjl
-ips = ips_vm
 usr = 'm'
 port = 22
 pwd = 'softraid'

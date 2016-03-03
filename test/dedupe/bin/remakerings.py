@@ -1,3 +1,6 @@
+#!/home/mjwtom/install/python/bin/python
+# -*- coding: utf-8 -*-
+
 import os
 import subprocess
 from nodes import ips

@@ -224,6 +224,8 @@ class ChunkStore(object):
         self.index.put(fp, container_id)
 
     def put(self, fp, chunk, obj_controller, req):
+        info = 'fingerprint: %s ' % fp
+        self.logger.info(info)
         self.object_controller = obj_controller
         self.req = req
         if self.sqlite_index:

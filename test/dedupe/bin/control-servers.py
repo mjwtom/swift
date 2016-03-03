@@ -1,4 +1,5 @@
-#!/usr/bin/python
+#!/home/mjwtom/install/python/bin/python
+# -*- coding: utf-8 -*-
 import sys
 from test.dedupe.ssh import run_cmd, run_cmds
 from threading import Thread
@@ -52,6 +53,25 @@ def kill_all():
         thread.join()
 
 
+def clean_data():
+    threads = []
+    cmd = 'rm -rf /home/m/mjwtom/swift-data/sdb1/*'
+    for ip in ips:
+        print 'removing the data in node %s' % ip
+        args = (usr, ip, port, pwd, cmd)
+        threads.append(Thread(target=run_cmd, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+def reset_all():
+    kill_all()
+    clean_data()
+    start_all()
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         exit()
@@ -60,3 +80,5 @@ if __name__ == '__main__':
         start_all()
     elif run_type == 'kill':
         kill_all()
+    elif run_type == 'reset':
+        reset_all()

@@ -1,7 +1,8 @@
 from swift.common.exceptions import ChunkReadTimeout
 from rabin import Rabin
 
-class RabinKarp:
+
+class RabinKarp(object):
     def __init__(self, win_size=48, prime=257, mod=1000000007):
         self.PRIME_BASE = prime
         self.PRIME_MOD = mod

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/home/mjwtom/install/python/bin/python
 # -*- coding: utf-8 -*-
 
 
@@ -153,10 +153,30 @@ def replace_etc_swift():
 def setup_log():
     cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
             'sudo -k chown -R root:adm /var/log/swift',
-            'sudo -k chmod -R g+w /var/log/swift'
+            'sudo -k chmod -R g+w /var/log/swift',
             'sudo -k cp -f /home/m/mjwtom/swift/test/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/',
             'sudo service rsyslog restart']
     run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+
+
+def thread_start_services():
+    cmds = ['sudo -k service rsync restart',
+            'sudo -k service memcached restart',
+            'sudo -k service rsyslog restart',
+            'sudo -k chkconfig rsync on',
+            'sudo -k chkconfig memcached on',
+            'sudo -k chkconfig rsyslog on']
+    threads = []
+    for ip in ips:
+        args = (usr, ip, port, pwd, cmds)
+        threads.append(Thread(target=run_cmds, args=args))
+
+    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+    threads.append(Thread(target=run_cmds, args=args))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 def thread_file_system():
@@ -268,6 +288,8 @@ if __name__ == '__main__':
         thread_share_code(tasks)
     if 'replace_etc' in sys.argv:
         replace_etc_swift()
+    if 'service' in sys.argv:
+        thread_start_services()
     if 'install' in sys.argv:
         thread_install()
     if 'make_ring' in sys.argv:
