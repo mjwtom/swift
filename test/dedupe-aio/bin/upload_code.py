@@ -3,16 +3,17 @@
 
 import sys
 sys.path.append('../..')
-from dedupe.bin.ssh import SSH
+from test.dedupe.ssh import uploads
 
-ip = '222.30.48.9'
+ip = '220.113.20.40'
 usr = 'mjwtom'
-port = 9030
+port = 22
 pwd = 'missing1988'
 
-src_dir='/home/mjwtom/PycharmProjects/swift/'
-dst_dir = '/home/mjwtom/swift/'
+tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/PycharmProjects/swift/'),
+         ('/home/mjwtom/PycharmProjects/python-swiftclient/', '/home/mjwtom/PycharmProjects/python-swiftclient/'),
+         ('/home/mjwtom/Downloads/Python-2.7.11.tgz', '/home/mjwtom/Python-2.7.11.tgz'),
+         ('/home/mjwtom/Downloads/setuptools-20.2.1.tar.gz', '/home/mjwtom/setuptools-20.2.1.tar.gz'),
+         ('/home/mjwtom/Downloads/pip-8.0.2.tar.gz', '/home/mjwtom/pip-8.0.2.tar.gz')]
 
-client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-client.connect()
-client.transport(src_dir, dst_dir, 'put', True)
+uploads(usr, ip, port, pwd, tasks)
