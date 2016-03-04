@@ -33,9 +33,9 @@ class DedupeSummary(object):
                 'duplicate chunk: %d' % self.dupe_chunk,
                 'total download size: %d' % self.total_download,
                 'total download chunk: %d' % self.total_download_chunk,
-                'chunking time: %d microseconds' % self.chunk_time,
-                'hashing time: %d microseconds' % self.hash_time,
-                'fingerprint lookup time: %d microseconds' % self.fp_lookup_time,
+                'chunking time: %f seconds' % self.chunk_time,
+                'hashing time: %f seconds' % self.hash_time,
+                'fingerprint lookup time: %f seconds' % self.fp_lookup_time,
                 'store time: %d microseconds' % self.store_time,
                 'deduplication container num: %d' % self.dc_num,
                 'compression time: % d microseconds' % self.compression_time]

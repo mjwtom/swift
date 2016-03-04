@@ -25,7 +25,8 @@ class ChunkStore(object):
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
         self.fp_cache = LRU(int(conf.get('cache_size', 65536)))
-        self.dc_cache = LRU(int(conf.get('dc_cache', 4)))
+        self.pool = LRU(int(conf.get('pool_size', 8)))
+        self.compress_pool = LRU(int(conf.get('compress_pool_size', 64)))
         self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.summary = DedupeSummary()
@@ -185,8 +186,8 @@ class ChunkStore(object):
             return
         self.current_continue_dup += 1
         if self._get_from_cache(self.fp_cache, fp):
-            self.summary.add_dup_size(len(chunk)) # for summary
-            self.summary.incre_dupe_chunk() # for summary
+            self.summary.dupe_size += len(chunk) # for summary
+            self.summary.dupe_chunk += 1 # for summary
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
@@ -206,8 +207,8 @@ class ChunkStore(object):
                 for cluster in clusters:
                     for fp, chunk in cluster.items():
                         if self._get_from_cache(self.fp_cache, fp):
-                            self.summary.add_dup_size(len(chunk)) # for summary
-                            self.summary.incre_dupe_chunk() # for summary
+                            self.summary.dupe_size += len(chunk) # for summary
+                            self.summary.dupe_chunk += 1 # for summary
                             self.index.buf_remove(fp)
                             del cluster[fp]
             else:
@@ -225,13 +226,13 @@ class ChunkStore(object):
     def _eager_dedupe(self, fp, chunk):
         if fp in self.bf:
             if self._get_from_cache(self.fp_cache, fp):
-                self.summary.add_dup_size(len(chunk)) # for summary
-                self.summary.incre_dupe_chunk() # for summary
+                self.summary.dupe_size += len(chunk) # for summary
+                self.summary.dupe_chunk += 1 # for summary
                 return
             container_id = self.index.get(fp)
             if container_id:
-                self.summary.add_dup_size(len(chunk)) # for summary
-                self.summary.incre_dupe_chunk() # for summary
+                self.summary.dupe_size += len(chunk) # for summary
+                self.summary.dupe_chunk += 1 # for summary
                 self._fill_cache_with_container_fp(container_id)
                 return
         self.bf.add(fp)
@@ -239,8 +240,8 @@ class ChunkStore(object):
         self.index.put(fp, container_id)
 
     def put(self, fp, chunk, obj_controller, req):
-        self.summary.add_total_size(len(chunk)) # for summary
-        self.summary.incre_total_chunk() # for summary
+        self.summary.total_size += len(chunk) # for summary
+        self.summary.total_chunk += 1 # for summary
         self.object_controller = obj_controller
         self.req = req
         if self.sqlite_index:
@@ -257,11 +258,20 @@ class ChunkStore(object):
         r = self.container.get(fp)
         if r:
             return r
-        for dc_id, dc in self.dc_cache.items():
+        for dc_id, dc in self.pool.items():
             r = dc.get(fp)
             if r:
                 return r
         dc_id = self.index.get(fp)
+
+        cdc = self.compress_pool.get(dc_id)
+        if cdc:
+            data = lz4.loads(cdc)
+            dc_container = DedupeContainer(dc_id)
+            dc_container.loads(data)
+            self.pool[dc_id] = dc_container
+            return dc_container.get(fp)
+
 
         req = self._dupl_req(self.req, dc_id, None, 0)
 
@@ -274,12 +284,13 @@ class ChunkStore(object):
         for d in iter(resp.app_iter):
             data += d
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
+            self.compress_pool[dc_id] = data
             data = lz4.loads(data)
         del resp
         dc_container = DedupeContainer(dc_id)
         dc_container.loads(data)
 
-        self._add2cache(self.dc_cache, dc_id, dc_container)
+        self._add2cache(self.pool, dc_id, dc_container)
 
         return dc_container.get(fp)
 
