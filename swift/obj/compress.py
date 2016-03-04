@@ -16,10 +16,10 @@ use lz4 downloaded from https://github.com/steeve/python-lz4
 
 
 class Compress(object):
-    def __init__(self, conf, logger = None, thread_num=16, queue_len=None):
-        self.logger = logger or get_logger(conf, log_route='object-server')
+    def __init__(self, conf, logger=None, thread_num=16, queue_len=None):
+        self.logger = logger or get_logger(conf, log_route='compression')
         self.hc = config_true_value(conf.get('lz4hc', False))
-        self.async = config_true_value(conf.get('async_compress', True))
+        self.async = config_true_value(conf.get('async_compress', 'true'))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
         if self.async:
             self.pool = ContextPool(thread_num+1)
