@@ -2743,18 +2743,18 @@ class DeduplicationObjectController(BaseObjectController):
         info_db = self.app.info_database
         fixed_chunk = self.app.fixed_chunk
         chunk_source = ChunkIter(data_source, fixed_chunk)
-        dedupe_start = chunk_store.summary.start_time()
+        dedupe_start = chunk_store.summary.time()
         for chunk in chunk_source:
-            dedupe_end = chunk_store.summary.end_time()
+            dedupe_end = chunk_store.summary.time()
             chunk_store.summary.chunk_time += chunk_store.summary.time_diff(dedupe_start, dedupe_end)
             etag_hasher.update(chunk) # update the checksum
-            dedupe_start = chunk_store.summary.start_time()
+            dedupe_start = chunk_store.summary.time()
             fp = chunk_store.hash(chunk)
-            dedupe_end = chunk_store.summary.end_time()
+            dedupe_end = chunk_store.summary.time()
             chunk_store.summary.hash_time += chunk_store.summary.time_diff(dedupe_start, dedupe_end)
             chunk_store.put(fp, chunk, self, req)
             file_recipe.append(fp)
-            dedupe_start = chunk_store.summary.start_time()
+            dedupe_start = chunk_store.summary.time()
 
         data = pickle.dumps(file_recipe)
         req.headers['Content-Length'] = str(len(data))

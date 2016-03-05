@@ -6,6 +6,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
 from swift.common.utils import public, get_logger
 import lz4
+import zlib
 from hashlib import md5
 from time import time
 from eventlet.queue import Queue
@@ -18,7 +19,7 @@ use lz4 downloaded from https://github.com/steeve/python-lz4
 class Compress(object):
     def __init__(self, conf, logger=None, thread_num=16, queue_len=None):
         self.logger = logger or get_logger(conf, log_route='compression')
-        self.hc = config_true_value(conf.get('lz4hc', False))
+        self.method = conf.get('compress_method', 'lz4hc')
         self.async = config_true_value(conf.get('async_compress', 'true'))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
         if self.async:
@@ -107,15 +108,19 @@ class Compress(object):
         return True
 
     def compress_file(self, info):
+        if info.get('compressed'):
+            return
         metadata, data = self._get(info)
-        if self.hc:
+        if self.method == 'lz4hc':
             data = lz4.compressHC(data)
-        else:
+        elif self.method == 'lz4':
             data = lz4.dumps(data)
+        else:
+            data = zlib.compress(data)
         etag = md5(data)
         metadata['Content-Length'] = str(len(data))
         metadata['X-Object-Sysmeta-Compressed'] = 'yes'
-        metadata['X-Object-Sysmeta-Lz4hc'] = str(self.hc)
+        metadata['X-Object-Sysmeta-CompressionMethod'] = self.method
         metadata['ETag'] = etag.hexdigest()
         info['X-Timestamp'] = metadata.get('X-Timestamp', '0')
         metadata['X-Timestamp'] = Timestamp(time()).internal

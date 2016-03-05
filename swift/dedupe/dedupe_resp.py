@@ -5,6 +5,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 
 import six.moves.cPickle as pickle
 import lz4
+import zlib
 
 
 class RespBodyIter(object):
@@ -17,7 +18,11 @@ class RespBodyIter(object):
         for d in iter(self.resp.app_iter):
             self.file_recipe += d
         if self.resp.headers.get('X-Object-Sysmeta-Compressed'):
-            self.file_recipe = lz4.loads(self.file_recipe)
+            method = self.resp.headers.get('X-Object-Sysmeta-CompressionMethod', 'lz4hc')
+            if method == 'lz4hc' or method == 'lz4':
+                self.file_recipe = lz4.loads(self.file_recipe)
+            else:
+                self.file_recipe = zlib.decompress(self.file_recipe)
         self.file_recipe = pickle.loads(self.file_recipe)
         self.req_environ_path = self.req.environ['PATH_INFO']
 

@@ -90,7 +90,7 @@ def start_all_except(no_server, no_id):
     for thread in threads:
         thread.join()
 
-except_sever = 'proxy-server'
+except_sever = 'object-server'
 except_num = 1
 
 if __name__ == '__main__':

@@ -18,6 +18,12 @@ When a data stream comes, it performs the following steps.
 To enable deduplication, add the dedupliation policy into swift.conf
 A typical confiuration would be like
 
+`[DEFAULT]`
+
+`compress = no`
+
+`compress_method = lz4hc`
+
 `[storage-policy:2]`
 
 `name = <your-user-name>`
@@ -25,6 +31,12 @@ A typical confiuration would be like
 `policy_type = deduplication`
 
 `default = yes`
+
+We recommend to use compression on the storage node (object server). Because
+compression is a slow process, which can nagetively impact the performance of
+proxy-server. The default compression algorithm is lz4hc. It can be configured
+to zib or lz4. Zlib has a higher compression rate while lz4 has a higher
+compression speed.
 
 ## Fingerprint lookup in deduplication
 
@@ -51,5 +63,5 @@ The deduplication engine records the deduplciation information into the log.
 For every container it record all the information once. It is configurable.
 
 
-## Bugs I made
+## Bugs I made (please check here if you find your system does not work)
 Remember to start the memcached server before start the cluster.

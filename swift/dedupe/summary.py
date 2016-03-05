@@ -1,4 +1,5 @@
 from datetime import datetime
+import sys
 
 
 class DedupeSummary(object):
@@ -16,10 +17,7 @@ class DedupeSummary(object):
         self.dc_num = 0
         self.compression_time = 0
 
-    def start_time(self):
-        return datetime.now()
-
-    def end_time(self):
+    def time(self):
         return datetime.now()
 
     def time_diff(self, start, end):
@@ -36,7 +34,34 @@ class DedupeSummary(object):
                 'chunking time: %f seconds' % self.chunk_time,
                 'hashing time: %f seconds' % self.hash_time,
                 'fingerprint lookup time: %f seconds' % self.fp_lookup_time,
-                'store time: %d microseconds' % self.store_time,
+                'store time: %d seconds' % self.store_time,
                 'deduplication container num: %d' % self.dc_num,
-                'compression time: % d microseconds' % self.compression_time]
+                'compression time: % d seconds' % self.compression_time]
         return info
+
+    def get_penalty(self, container, compress = None):
+        mem_size = sys.getsizeof(container.kv)
+        orig_data = ''
+        for k, v in container.kv.items():
+            orig_data += v
+        orig_size = len(orig_data)
+        dump_data = container.dumps()
+        dump_size = len(dump_data)
+        if compress:
+            orig_compressed_data = compress(orig_data)
+            orig_compressed_size = len(orig_compressed_data)
+            compress_dump_data = compress(dump_data)
+            compress_dump_size = len(compress_dump_data)
+
+        info = dict(
+            orig_size = orig_size,
+            dump_size = dump_size,
+        )
+        if compress:
+            info.update({'orig_compressed_size': orig_compressed_size,
+                         'compress_dump_size': compress_dump_size})
+
+        text = []
+        for k, v in info.items():
+            text.append('%s: %d' % (k, v))
+        return text

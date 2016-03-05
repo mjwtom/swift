@@ -61,7 +61,6 @@ from functools import partial
 get_data_dir = partial(get_policy_string, DATADIR_BASE)
 from swift.common.utils import mkdirs
 from swift.obj.compress import Compress
-from eventlet.queue import Queue
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -724,7 +723,8 @@ class ObjectController(BaseStorageServer):
             update_headers,
             device, policy)
         #mjwtom: if compress the data
-        if self.compress:
+        compressed = config_true_value(metadata.get('X-Object-Sysmeta-Compressed', 'false'))
+        if self.compress and not compressed:
             info = dict(
                 device = device,
                 partition = partition,

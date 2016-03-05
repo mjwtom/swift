@@ -10,6 +10,7 @@ from swift.common.wsgi import make_env
 from swift.common.swob import WsgiBytesIO
 from lru import LRU
 import lz4
+import zlib
 import os
 import six.moves.cPickle as pickle
 from directio import read, write
@@ -47,6 +48,9 @@ class ChunkStore(object):
                 self.current_continue_dup = 0
             else:
                 self.index = DiskHashTable(conf)
+        self.compress = config_true_value(conf.get('compress', 'false'))
+        if self.compress:
+            self.method = conf.get('compress_method', 'lz4hc')
         if logger is None:
             log_conf = dict()
             for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
@@ -60,6 +64,7 @@ class ChunkStore(object):
             self.logger = get_logger(log_conf, log_route='deduplication')
         else:
             self.logger = logger
+        self.container_penalty = config_true_value(conf.get('dedupe_container_penalty', 'false'))
 
     def _add2cache(self, cache, key, value):
         cache[key] = value
@@ -122,7 +127,7 @@ class ChunkStore(object):
             self._add2cache(self.fp_cache, fp, container_id)
 
     #FIXME: this is tmperal method to duplicate a req and change something
-    def _dupl_req(self, req, obj_name, data_source, data_len):
+    def _dupl_req(self, req, obj_name, data_source, data_len, compressed=False, method='lz4hc'):
         """
         Makes a copy of the request, converting it to a GET.
         """
@@ -131,10 +136,15 @@ class ChunkStore(object):
         l = len(self.object_controller.object_name)
         tmp_pth = env['PATH_INFO'][:-l] + str(obj_name)
         env.update({
-            'CONTENT_LENGTH': str(data_len),
-            'wsgi.input': data_source,
-            'PATH_INFO' : tmp_pth,
-        })
+                'CONTENT_LENGTH': str(data_len),
+                'wsgi.input': data_source,
+                'PATH_INFO': tmp_pth
+                })
+        if compressed:
+            env.update({
+                'X-Object-Sysmeta-Compressed': str(compressed),
+                'X-Object-Sysmeta-CompressionMethod': method
+            })
         return Request(env)
 
     def _store_container(self, container):
@@ -146,6 +156,16 @@ class ChunkStore(object):
         environ = dict(
             CONTENT_LENGTH = str(len(data))
         )
+        if self.compress:
+            dedupe_start = self.summary.time()
+            if self.method == 'lz4hc':
+                data = lz4.compressHC(data)
+            elif self.method == 'lz4':
+                data = lz4.dumps(data)
+            else:
+                data = zlib.compress(data)
+            dedupe_end = self.summary.time()
+            self.summary.compression_time += self.summary.time_diff(dedupe_start, dedupe_end)
         ll = len(data)
         data = WsgiBytesIO(data)
         environ = make_env(environ, method='PUT', path = path)
@@ -155,7 +175,10 @@ class ChunkStore(object):
         FIXME: Do not use the oject controller borrowed  from the data source,
         Use your own please
         '''
-        req = self._dupl_req(self.req, container.get_id(), data, ll)
+        if self.compress:
+            req = self._dupl_req(self.req, container.get_id(), data, ll, self.compress, self.method)
+        else:
+            req = self._dupl_req(self.req, container.get_id(), data, ll)
         try:
             obj_name = self.object_controller.object_name
             self.object_controller.object_name = container.get_id()
@@ -172,8 +195,14 @@ class ChunkStore(object):
             full_container = self.container
             self.new_container()
             self._store_container_fp(full_container)
+            dedupe_start = self.summary.time()
             self._store_container(full_container)
+            dedupe_end = self.summary.time()
+            self.summary.store_time += self.summary.time_diff(dedupe_start, dedupe_end)
             info = self.summary.get_info()
+            for entry in info:
+                self.logger.info(entry)
+            info = self.summary.get_penalty(full_container, lz4.compress)
             for entry in info:
                 self.logger.info(entry)
         return container_id
@@ -266,7 +295,10 @@ class ChunkStore(object):
 
         cdc = self.compress_pool.get(dc_id)
         if cdc:
-            data = lz4.loads(cdc)
+            if self.method == 'lz4hc' or self.method == 'lz4':
+                data = lz4.loads(cdc)
+            else:
+                data = zlib.decompress(cdc)
             dc_container = DedupeContainer(dc_id)
             dc_container.loads(data)
             self.pool[dc_id] = dc_container
@@ -285,7 +317,11 @@ class ChunkStore(object):
             data += d
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
             self.compress_pool[dc_id] = data
-            data = lz4.loads(data)
+            self.method = resp.headers.get('X-Object-Sysmeta-CompressionMethod')
+            if self.method == 'lz4hc' or self.method == 'lz4':
+                data = lz4.loads(data)
+            else:
+                data = zlib.decompress(data)
         del resp
         dc_container = DedupeContainer(dc_id)
         dc_container.loads(data)
