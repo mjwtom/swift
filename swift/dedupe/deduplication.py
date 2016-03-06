@@ -16,6 +16,7 @@ import six.moves.cPickle as pickle
 from directio import read, write
 from eventlet.queue import Queue
 from swift.common.utils import ContextPool
+from copy import copy
 
 
 class ChunkStore(object):
@@ -196,10 +197,11 @@ class ChunkStore(object):
         else:
             req = self._dupl_req(self.req, container.get_id(), data, ll)
         try:
-            obj_name = self.object_controller.object_name
-            self.object_controller.object_name = container.get_id()
-            resp = self.object_controller.store_container(req)
-            self.object_controller.object_name = obj_name
+            controller = copy(self.object_controller)
+            #obj_name = self.object_controller.object_name
+            controller.object_name = container.get_id()
+            resp = controller.store_container(req)
+            #self.object_controller.object_name = obj_name
         except Exception as e:
             pass
         del resp
