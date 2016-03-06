@@ -14,6 +14,8 @@ import zlib
 import os
 import six.moves.cPickle as pickle
 from directio import read, write
+from eventlet.queue import Queue
+from swift.common.utils import ContextPool
 
 
 class ChunkStore(object):
@@ -51,6 +53,13 @@ class ChunkStore(object):
         self.compress = config_true_value(conf.get('compress', 'false'))
         if self.compress:
             self.method = conf.get('compress_method', 'lz4hc')
+        self.async_send = config_true_value(conf.get('async_send', 'true'))
+        if self.async_send:
+            self.send_queue_len = int(conf.get('send_queue_len', 2))
+            self.send_thread_num = int(conf.get('send_thread_num', 2))
+            self.send_queue = Queue(self.send_queue_len)
+            self.send_pool = ContextPool(self.send_thread_num + 1) # in case send_thread_num set to 0
+            self.send_pool.spawn(self.send_container_thread, self.send_queue)
         if logger is None:
             log_conf = dict()
             for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
@@ -127,6 +136,7 @@ class ChunkStore(object):
             self._add2cache(self.fp_cache, fp, container_id)
 
     #FIXME: this is tmperal method to duplicate a req and change something
+    #This should be changed to create a request all by the chunk store
     def _dupl_req(self, req, obj_name, data_source, data_len, compressed=False, method='lz4hc'):
         """
         Makes a copy of the request, converting it to a GET.
@@ -146,6 +156,12 @@ class ChunkStore(object):
                 'X-Object-Sysmeta-CompressionMethod': method
             })
         return Request(env)
+
+    def send_container_thread(self, queue):
+        while True:
+            container = queue.get()
+            self._store_container(container)
+        queue.taskdone()
 
     def _store_container(self, container):
         data = container.dumps()
@@ -196,15 +212,19 @@ class ChunkStore(object):
             self.new_container()
             self._store_container_fp(full_container)
             dedupe_start = self.summary.time()
-            self._store_container(full_container)
+            if self.async_send:
+                self.send_queue.put(full_container)
+            else:
+                self._store_container(full_container)
             dedupe_end = self.summary.time()
             self.summary.store_time += self.summary.time_diff(dedupe_start, dedupe_end)
             info = self.summary.get_info()
             for entry in info:
                 self.logger.info(entry)
-            info = self.summary.get_penalty(full_container, lz4.compress)
-            for entry in info:
-                self.logger.info(entry)
+            if self.container_penalty:
+                info = self.summary.get_penalty(full_container, lz4.compress)
+                for entry in info:
+                    self.logger.info(entry)
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):

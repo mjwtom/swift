@@ -23,7 +23,7 @@ class Compress(object):
         self.async = config_true_value(conf.get('async_compress', 'true'))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
         if self.async:
-            self.pool = ContextPool(thread_num+1)
+            self.pool = ContextPool(thread_num+1) # why thread_num + 1? In case thread_num is set to 0?
             self.queue = Queue(queue_len)
             self.pool.spawn(self.run, self.queue)
 
@@ -131,7 +131,7 @@ class Compress(object):
         while True:
             info = queue.get()
             self.pool.spawn(self.compress_file, info)
-        self.queue.task_done()
+        queue.task_done()
 
     def compress(self, info):
         if self.async:

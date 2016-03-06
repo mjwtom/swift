@@ -54,6 +54,7 @@ class DedupeSummary(object):
             compress_dump_size = len(compress_dump_data)
 
         info = dict(
+            mem_size = mem_size,
             orig_size = orig_size,
             dump_size = dump_size,
         )

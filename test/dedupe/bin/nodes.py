@@ -20,3 +20,9 @@ ips = ips_nbjl
 usr = 'm'
 port = 22
 pwd = 'softraid'
+
+proxy_ip = '220.113.20.30'
+
+
+file_server = '220.113.26'
+file_dir = '/media/indexDisk/mjw/'
