@@ -16,6 +16,10 @@ class DedupeSummary(object):
         self.store_time = 0
         self.dc_num = 0
         self.compression_time = 0
+        self.decompression_time = 0
+        self.hit_uncompressed = 0
+        self.hit_compressed = 0
+        self.get = 0
 
     def time(self):
         return datetime.now()
@@ -25,6 +29,7 @@ class DedupeSummary(object):
         return diff.total_seconds()
 
     def get_info(self):
+        self.total_download_chunk = self.get
         info = ['total size: %d' % self.total_size,
                 'total chunk: %d' % self.total_chunk,
                 'duplicate size: %d' % self.dupe_size,
@@ -34,9 +39,13 @@ class DedupeSummary(object):
                 'chunking time: %f seconds' % self.chunk_time,
                 'hashing time: %f seconds' % self.hash_time,
                 'fingerprint lookup time: %f seconds' % self.fp_lookup_time,
-                'store time: %d seconds' % self.store_time,
+                'store time: %f seconds' % self.store_time,
                 'deduplication container num: %d' % self.dc_num,
-                'compression time: % d seconds' % self.compression_time]
+                'compression time: %f seconds' % self.compression_time,
+                'decompression time: %f seconds' % self.decompression_time,
+                'get num: %d' % self.get,
+                'hit uncompressed num: %d' % self.hit_uncompressed,
+                'hit compressed num: %d' % self.hit_compressed]
         return info
 
     def get_penalty(self, container, compress = None):

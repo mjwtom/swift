@@ -2773,6 +2773,11 @@ class DeduplicationObjectController(BaseObjectController):
         resp.headers['Etag'] = etag_hasher.hexdigest().strip()
         info_db.insert_etag(self.object_name, etag_hasher.hexdigest().strip()) #save etage for restore check
 
+        # log the information
+        info = chunk_store.summary.get_info()
+        for entry in info:
+            chunk_store.logger.info(entry)
+
         return update_response(req, resp)
 
     @public

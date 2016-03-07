@@ -5,11 +5,10 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileXattrNotSupported
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
 from swift.common.utils import public, get_logger
-import lz4
-import zlib
 from hashlib import md5
 from time import time
 from eventlet.queue import Queue
+from swift.dedupe.compress import compress
 
 '''
 use lz4 downloaded from https://github.com/steeve/python-lz4
@@ -111,12 +110,7 @@ class Compress(object):
         if info.get('compressed'):
             return
         metadata, data = self._get(info)
-        if self.method == 'lz4hc':
-            data = lz4.compressHC(data)
-        elif self.method == 'lz4':
-            data = lz4.dumps(data)
-        else:
-            data = zlib.compress(data)
+        data = compress(data, self.method)
         etag = md5(data)
         metadata['Content-Length'] = str(len(data))
         metadata['X-Object-Sysmeta-Compressed'] = 'yes'

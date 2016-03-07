@@ -4,8 +4,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 '''
 
 import six.moves.cPickle as pickle
-import lz4
-import zlib
+from swift.dedupe.compress import decompress
 
 
 class RespBodyIter(object):
@@ -19,10 +18,10 @@ class RespBodyIter(object):
             self.file_recipe += d
         if self.resp.headers.get('X-Object-Sysmeta-Compressed'):
             method = self.resp.headers.get('X-Object-Sysmeta-CompressionMethod', 'lz4hc')
-            if method == 'lz4hc' or method == 'lz4':
-                self.file_recipe = lz4.loads(self.file_recipe)
-            else:
-                self.file_recipe = zlib.decompress(self.file_recipe)
+            dedupe_start = self.chunk_store.summary.time()
+            self.file_recipe = decompress(self.file_recipe, method)
+            dedupe_end = self.chunk_store.summary.time()
+            self.chunk_store.summary.decompression_time += chunk_store.summary.time_diff(dedupe_start, dedupe_end)
         self.file_recipe = pickle.loads(self.file_recipe)
         self.req_environ_path = self.req.environ['PATH_INFO']
 
@@ -32,6 +31,12 @@ class RespBodyIter(object):
     def __next__(self):
         if not self.file_recipe:
             self.req.environ['PATH_INFO'] = self.req_environ_path
+
+            # log the information
+            info = self.chunk_store.summary.get_info()
+            for entry in info:
+                self.chunk_store.logger.info(entry)
+
             raise StopIteration
         else:
             fp = self.file_recipe.pop(0)

@@ -9,14 +9,13 @@ from disk_index import DatabaseTable, DiskHashTable, LazyHashTable
 from swift.common.wsgi import make_env
 from swift.common.swob import WsgiBytesIO
 from lru import LRU
-import lz4
-import zlib
 import os
 import six.moves.cPickle as pickle
 from directio import read, write
 from eventlet.queue import Queue
 from swift.common.utils import ContextPool
 from copy import copy
+from swift.dedupe.compress import compress, decompress
 
 
 class ChunkStore(object):
@@ -151,12 +150,13 @@ class ChunkStore(object):
                 'wsgi.input': data_source,
                 'PATH_INFO': tmp_pth
                 })
+        req = Request(env)
         if compressed:
-            env.update({
+            req.headers.update({
                 'X-Object-Sysmeta-Compressed': str(compressed),
                 'X-Object-Sysmeta-CompressionMethod': method
             })
-        return Request(env)
+        return req
 
     def send_container_thread(self, queue):
         while True:
@@ -175,12 +175,7 @@ class ChunkStore(object):
         )
         if self.compress:
             dedupe_start = self.summary.time()
-            if self.method == 'lz4hc':
-                data = lz4.compressHC(data)
-            elif self.method == 'lz4':
-                data = lz4.dumps(data)
-            else:
-                data = zlib.compress(data)
+            data = compress(data, self.method)
             dedupe_end = self.summary.time()
             self.summary.compression_time += self.summary.time_diff(dedupe_start, dedupe_end)
         ll = len(data)
@@ -220,13 +215,6 @@ class ChunkStore(object):
                 self._store_container(full_container)
             dedupe_end = self.summary.time()
             self.summary.store_time += self.summary.time_diff(dedupe_start, dedupe_end)
-            info = self.summary.get_info()
-            for entry in info:
-                self.logger.info(entry)
-            if self.container_penalty:
-                info = self.summary.get_penalty(full_container, lz4.compress)
-                for entry in info:
-                    self.logger.info(entry)
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):
@@ -312,15 +300,17 @@ class ChunkStore(object):
         for dc_id, dc in self.pool.items():
             r = dc.get(fp)
             if r:
+                self.summary.hit_uncompressed += 1
                 return r
         dc_id = self.index.get(fp)
 
         cdc = self.compress_pool.get(dc_id)
         if cdc:
-            if self.method == 'lz4hc' or self.method == 'lz4':
-                data = lz4.loads(cdc)
-            else:
-                data = zlib.decompress(cdc)
+            self.summary.hit_compressed += 1
+            dedupe_start = self.summary.time()
+            data = decompress(cdc, self.method)
+            dedupe_end = self.summary.time()
+            self.summary.decompression_time += self.summary.time_diff(dedupe_start, dedupe_end)
             dc_container = DedupeContainer(dc_id)
             dc_container.loads(data)
             self.pool[dc_id] = dc_container
@@ -340,10 +330,10 @@ class ChunkStore(object):
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
             self.compress_pool[dc_id] = data
             self.method = resp.headers.get('X-Object-Sysmeta-CompressionMethod')
-            if self.method == 'lz4hc' or self.method == 'lz4':
-                data = lz4.loads(data)
-            else:
-                data = zlib.decompress(data)
+            dedupe_start = self.summary.time()
+            data = decompress(data, self.method)
+            dedupe_end = self.summary.time()
+            self.summary.decompression_time += self.summary.time_diff(dedupe_start, dedupe_end)
         del resp
         dc_container = DedupeContainer(dc_id)
         dc_container.loads(data)
@@ -364,6 +354,7 @@ class ChunkStore(object):
     def get(self, fp, controller, req):
         self.object_controller = controller
         self.req = req
+        self.summary.get += 1
         if self.sqlite_index:
             return self._sqlite_get(fp)
         elif self.lazy_dedupe:
