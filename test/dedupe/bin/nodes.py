@@ -31,6 +31,7 @@ ips_vm = ['220.113.20.141',
           '220.113.20.144']
 
 ips = ips_nbjl
+ips = ips_vm
 usr = 'm'
 port = 22
 pwd = 'softraid'
@@ -38,7 +39,13 @@ pwd = 'softraid'
 proxy_ip = '220.113.20.30'
 
 
-file_server = '220.113.26'
+file_server = '220.113.20.26'
 file_server_usr = 'mjw'
 file_server_port = 22
 file_server_pwd = 'missing'
+
+
+file_server = '220.113.20.1'
+file_server_usr = 'mjwtom'
+file_server_port = 22
+file_server_pwd = 'missing1988'

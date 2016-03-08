@@ -14,6 +14,16 @@ normal_upload = '/home/m/mjwtom/test/vm-normal-upload-result.pickle'
 seq_download = '/home/m/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
 rnd_download = '/home/m/mjwtom/test/vm-normal-random-download-result.pickle'
 
+####
+log_file_normal = '/home/mjwtom/test/vm-normal.txt'
+pickle_vm = '/home/mjwtom/test/vm.pickle'
+
+tmp_dir = '/home/mjwtom/tmp'
+
+normal_upload = '/home/mjwtom/test/vm-normal-upload-result.pickle'
+seq_download = '/home/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
+rnd_download = '/home/mjwtom/test/vm-normal-random-download-result.pickle'
+
 
 def test_normal():
     dir, file = os.path.split(log_file_normal)
@@ -48,6 +58,9 @@ def test_normal():
 
 
 if __name__=='__main__':
+    if len(sys.argv) < 2:
+        print 'pleas give the case to test'
+        exit()
     case = sys.argv[1]
     if case == 'normal':
         test_normal()

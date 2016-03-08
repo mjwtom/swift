@@ -1,7 +1,7 @@
 #!/home/mjwtom/install/python/bin/python
 # -*- coding: utf-8 -*-
 import os
-from swift.dedupe.summary import DedupeSummary
+from swift.dedupe.time import time, time_diff
 import subprocess
 from nodes import proxy_ip
 from test.dedupe.ssh import SSH
@@ -45,16 +45,16 @@ class DeduplicationTest(object):
                    'upload',
                    'mjwtom',
                    path]
-            dedupe_start = DedupeSummary.time()
+            dedupe_start = time()
             subprocess.call(cmd)
-            dedupe_end = DedupeSummary.time()
-            time = DedupeSummary.time_diff(dedupe_start, dedupe_end)
+            dedupe_end = time()
+            time_used = time_diff(dedupe_start, dedupe_end)
             size = os.path.getsize(file)
-            throughput = size/time
+            throughput = size/time_used
             info = dict(
                 file = path,
                 size = size,
-                time = time,
+                time = time_used,
                 throughput = throughput
             )
             self.uploads.append(info)
@@ -72,12 +72,13 @@ class DeduplicationTest(object):
             client = SSH(file_server_usr, file_server, file_server_port, file_server_pwd)
             pre, filename = os.path.split(file)
             local_path = os.path.join(tmp_dir, filename)
-            start = DedupeSummary.time()
+            start = time()
             client.transport(local_path, file, 'get')
-            end = DedupeSummary.time()
-            time = DedupeSummary.time_diff(start, end)
+            end = time()
+            time_used = time_diff(start, end)
             size = os.path.getsize(local_path)
-            info = 'fech %s to %s, size %d, time %f, throughput %f\n' % (file, local_path, size, time, size/time)
+            info = 'fech %s to %s, size %d, time %f, throughput %f\n' % (file, local_path, size, time_used, size/time_used)
+            print info
             self.info(info)
             cmd = ['/home/m/mjwtom/bin/swift',
                    '-A',
@@ -89,19 +90,34 @@ class DeduplicationTest(object):
                    'upload',
                    'mjwtom',
                    local_path]
+            cmd = ['swift',
+                   '-A',
+                   'http://%s:8080/auth/v1.0' % proxy_ip,
+                   '-U',
+                   'test:tester',
+                   '-K',
+                   'testing',
+                   'upload',
+                   'mjwtom',
+                   local_path]
             print 'uploading %s' % local_path
-            start = DedupeSummary.time()
-            subprocess.call(cmd)
-            end = DedupeSummary.time()
-            time = DedupeSummary.time_diff(start, end)
+            start = time()
+            ret = subprocess.call(cmd)
+            end = time()
+            if ret == 0:
+                print 'success upload file'
+            else:
+                print 'fail to upload file'
+            time_used = time_diff(start, end)
             size = os.path.getsize(local_path)
-            throughput = size/time
-            info = 'upload %s, size %d, time %f, throughput %f\n' % (local_path, size, time, throughput)
+            throughput = size/time_used
+            info = 'upload %s, size %d, time %f, throughput %f\n' % (local_path, size, time_used, throughput)
+            print info
             self.info(info)
             info = dict(
                 file = local_path,
                 size = size,
-                time = time,
+                time = time_used,
                 throughput = throughput
             )
             upload_info.append(info)
@@ -111,10 +127,8 @@ class DeduplicationTest(object):
             subprocess.call(cmd)
         return upload_info
 
-    def sequential_download(self, files):
-        download_info = []
-        for file in files:
-            cmd =['/home/mjwtom/bin/swift'
+    def download(self, file):
+        cmd =['/home/mjwtom/bin/swift'
                   '-A'
                   'http://%s:8080/auth/v1.0' % proxy_ip,
                   '-U',
@@ -123,25 +137,31 @@ class DeduplicationTest(object):
                   'testing',
                   'download',
                   file]
-            start = DedupeSummary.time()
-            subprocess.call(cmd)
-            end = DedupeSummary.time()
-            time = DedupeSummary.time_diff(start, end)
-            size = os.path.getsize(file)
-            throughput = size/time
-            info = 'upload %s, size %d, time %f, throughput %f\n' % (file, size, time, throughput)
-            self.info(info)
-            info = dict(
-                file = file,
-                size = size,
-                time = time,
-                throughput = throughput
-            )
-            download_info.append(info)
-            cmd = ['rm',
-                   '-rf',
-                   file]
-            subprocess.call(cmd)
+        start = time()
+        subprocess.call(cmd)
+        end = time()
+        time_used = time_diff(start, end)
+        size = os.path.getsize(file)
+        throughput = size/time_used
+        info = 'upload %s, size %d, time %f, throughput %f\n' % (file, size, time_used, throughput)
+        print info
+        self.info(info)
+        info = dict(
+            file = file,
+            size = size,
+            time = time_used,
+            throughput = throughput
+        )
+        cmd = ['rm',
+               '-rf',
+               file]
+        subprocess.call(cmd)
+        return info
+
+    def sequential_download(self, files):
+        download_info = []
+        for file in files:
+            download_info.append(self.download(file))
         return download_info
 
     def random_download(self, files):
@@ -150,34 +170,7 @@ class DeduplicationTest(object):
         while l > 0:
             index = randint(0, l-1)
             file = files.pop(index)
-            cmd =['/home/mjwtom/bin/swift'
-                  '-A'
-                  'http://%s:8080/auth/v1.0' % proxy_ip,
-                  '-U',
-                  'test:tester',
-                  '-K',
-                  'testing',
-                  'download',
-                  file]
-            start = DedupeSummary.time()
-            subprocess.call(cmd)
-            end = DedupeSummary.time()
-            time = DedupeSummary.time_diff(start, end)
-            size = os.path.getsize(file)
-            throughput = size/time
-            info = 'download %s, size %d, time %f, throughput %f\n' % (file, size, time, throughput)
-            self.info(info)
-            info = dict(
-                file = file,
-                size = size,
-                time = time,
-                throughput = throughput
-            )
-            download_info.append(info)
-            cmd = ['rm',
-                   '-rf',
-                   file]
-            subprocess.call(cmd)
+            download_info.append(self.download(file))
             l = len(files)
         return download_info
 
@@ -200,9 +193,13 @@ class DeduplicationTest(object):
         out.close()
 
     def get_files(self, pickle_file):
-        inf = open(pickle_file, 'rb')
-        files = pickle.load(inf)
-        inf.close()
+        try:
+            inf = open(pickle_file, 'rb')
+            files = pickle.load(inf)
+            inf.close()
+        except IOError as e:
+            print 'can not open the pickle file storing the positions'
+            return None
         return files
 
     def print_files(self, files):

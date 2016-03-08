@@ -52,11 +52,14 @@ class SSH(object):
     def transport(self, local, remote, method='put', rm_old=False):
 
         def recur_put(sftp, local, remote):
-            if not os.path.exists(local):
-                print 'local paht does not exist'
-            mode = os.stat(local).st_mode & 0777
+            try:
+                stat = os.stat(local)
+            except IOError as e:
+                print 'remote file does not exist', e
+                return
+            mode = stat.st_mode & 0777
             if os.path.isfile(local):
-                print 'uploading %s' % local
+                print 'pushing %s' % local
                 try:
                     sftp.put(local, remote)
                     sftp.chmod(remote, mode)
@@ -75,21 +78,22 @@ class SSH(object):
 
         def recur_get(sftp, local, remote):
             try:
-                mode = sftp.lstat(remote)
+                stat = sftp.lstat(remote)
             except IOError as e:
                 print 'remote file does not exist', e
                 return
-            if S_ISREG(mode):
-                print 'downloading %s' % remote
+            mode = stat.st_mode & 0777
+            if S_ISREG(stat.st_mode):
+                print 'pulling %s' % remote
                 try:
                     sftp.get(remote, local)
-                    mode = mode & 0777
                     os.chmod(local, mode)
                 except IOError as e:
                     print 'assuming ', local, 'prarent directory does not exist', e
-            elif S_ISDIR(mode):
+            elif S_ISDIR(stat.st_mode):
                 try:
                     print 'making directory %s' % local
+                    os.mkdir(local, mode)
                 except IOError as e:
                     print '(assuming ', local, 'parent directory exists)', e
                 for file in sftp.listdir(remote):
@@ -125,8 +129,6 @@ class SSH(object):
             else:
                 print 'neither directory nor file %s' % localpath
 
-        if not os.path.exists(local):
-            return
         trans = self.client.get_transport()
         sftp = paramiko.SFTPClient.from_transport(trans)
         if method == 'put':

@@ -14,4 +14,6 @@ tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/'),
          ('/home/mjwtom/Downloads/setuptools-20.2.1.tar.gz', '/home/mjwtom/setuptools-20.2.1.tar.gz'),
          ('/home/mjwtom/Downloads/pip-8.0.2.tar.gz', '/home/mjwtom/pip-8.0.2.tar.gz')]
 
+tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/')]
+
 uploads(usr, ip, port, pwd, tasks)
