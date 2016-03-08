@@ -14,19 +14,19 @@ def start_all(muti_thread=False):
     servers['proxy-server'] = []
     server_names = ['object-server', 'container-server', 'account-server']
     for ip in ips:
+        cmds = ['sudo -k service memcached restart']
         for server in server_names:
             print 'starting %s on %s' % (server, ip)
-            cmds = ['sudo -k service memcached restart',
-                   '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
-                  '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)]
-            if muti_thread:
-                args = (usr, ip, port, pwd, cmds)
-                servers[server].append(Thread(target=run_cmds, args=args))
-            else:
-                run_cmds(usr, ip, port, pwd, cmds)
+            cmds.extend(['/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
+                  '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)])
+        if muti_thread:
+            args = (usr, ip, port, pwd, cmds)
+            servers[server].append(Thread(target=run_cmds, args=args))
+        else:
+            run_cmds(usr, ip, port, pwd, cmds)
     print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
     cmds = ['sudo -k service memcached restart',
-           '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
+            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
     if muti_thread:
         args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
