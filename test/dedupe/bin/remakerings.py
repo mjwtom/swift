@@ -3,7 +3,7 @@
 
 import os
 import subprocess
-from nodes import ips
+from nodes import storage_nodes as ips
 
 
 def generate_rings():

@@ -1,6 +1,6 @@
 import paramiko
 import os
-from stat import S_ISDIR
+from stat import S_ISDIR, S_ISREG
 
 
 class SSH(object):
@@ -61,30 +61,69 @@ class SSH(object):
                     sftp.put(local, remote)
                     sftp.chmod(remote, mode)
                 except IOError as e:
-                    print '(assuming ', remote, 'parent directory does not exists)', e
+                    print '(assuming ', remote, 'parent directory does not exist)', e
             elif os.path.isdir(local):
                 try:
-                    print 'making directory %s' % local
+                    print 'making directory %s' % remote
                     sftp.mkdir(remote, mode=mode)
                 except IOError as e:
-                    print '(assuming ', remote, 'parent directory does not exists)', e
-                files = os.listdir(local)
-                for f in files:
-                    local_subpath = os.path.join(local, f)
-                    remote_subpath = os.path.join(remote, f)
+                    print '(assuming ', remote, 'parent directory exists)', e
+                for file in os.listdir(local):
+                    local_subpath = os.path.join(local, file)
+                    remote_subpath = os.path.join(remote, file)
                     recur_put(sftp, local_subpath, remote_subpath)
+
+        def recur_get(sftp, local, remote):
+            try:
+                mode = sftp.lstat(remote)
+            except IOError as e:
+                print 'remote file does not exist', e
+                return
+            if S_ISREG(mode):
+                print 'downloading %s' % remote
+                try:
+                    sftp.get(remote, local)
+                    mode = mode & 0777
+                    os.chmod(local, mode)
+                except IOError as e:
+                    print 'assuming ', local, 'prarent directory does not exist', e
+            elif S_ISDIR(mode):
+                try:
+                    print 'making directory %s' % local
+                except IOError as e:
+                    print '(assuming ', local, 'parent directory exists)', e
+                for file in sftp.listdir(remote):
+                    local_subpath = os.path.join(local, file)
+                    remote_subpath = os.path.join(remote, file)
+                    recur_get(sftp, local_subpath, remote_subpath)
+
 
         def rmtree(sftp, remotepath):
             remote_tate = sftp.lstat(remotepath)
             if S_ISDIR(remote_tate.st_mode):
                 for file in sftp.listdir(remotepath):
                     subpath = remotepath + '/' + file
-                    print 'removing directory %s' % subpath
                     rmtree(sftp, subpath)
+                print 'removing directory %s' % remotepath
                 sftp.rmdir(remotepath)
-            else:
+            elif S_ISREG(remote_tate.st_mode):
                 print 'removing file %s' % remotepath
                 sftp.remove(remotepath)
+            else:
+                print 'neither directory nor file % s' % remotepath
+
+        def rmtree_local(localpath):
+            if os.path.isdir(localpath):
+                for file in os.listdir(localpath):
+                    subpath = os.path.join(localpath, file)
+                    rmtree_local(subpath)
+                print 'removing directory %s' % localpath
+                os.remove(localpath)
+            elif os.path.isfile(localpath):
+                print 'removing file %s' % localpath
+                os.remove(localpath)
+            else:
+                print 'neither directory nor file %s' % localpath
 
         if not os.path.exists(local):
             return
@@ -94,16 +133,22 @@ class SSH(object):
             try:
                 if rm_old:
                     rmtree(sftp, remote)
-                    print 'remove the old directory'
+                    print 'remove the old files'
                 else:
-                    print 'not remove the original directory'
+                    print 'not remove the old files'
             except IOError as e:
                 print '(assuming ', remote, 'does not exists)', e
             recur_put(sftp, local, remote)
         elif method == 'get':
-            files = sftp.listdir(remote)
-            for f in files:
-                sftp.get(os.path.join(remote, f), os.path.join(local, f))
+            try:
+                if rm_old:
+                    rmtree_local(local)
+                    print 'remove the old files'
+                else:
+                    print 'not remove the old files'
+            except IOError as e:
+                print '(assuming ', remote, 'does not exists)', e
+            recur_get(sftp, local, remote)
         trans.close()
 
 

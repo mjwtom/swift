@@ -79,65 +79,97 @@ def thread_cmds(cmds):
         thread.join()
 
 
-def thread_reboot():
-    threads = []
-    for ip in ips:
-        args = (usr, ip, port, pwd, 'sudo -k reboot')
+def thread_reboot(multi_thread=False):
+    if multi_thread:
+        threads = []
+        for ip in ips:
+            args = (usr, ip, port, pwd, 'sudo -k reboot')
+            threads.append(Thread(target=run_cmd, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        for ip in ips:
+            print 'rebooting % s' % ip
+            run_cmd(usr, ip, port, pwd, 'sudo -k reboot')
+
+
+def thread_share_code(tasks=None, multi_thread=False):
+    if multi_thread:
+        threads = []
+        for ip in ips:
+            args = (usr, ip, port, pwd, tasks)
+            threads.append(Thread(target=uploads, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        for ip in ips:
+            print 'uploading %s' % ip
+            uploads(usr, ip, port, pwd, tasks)
+
+
+def thread_share_ring(multi_thread=False):
+    if multi_thread:
+        threads = []
+        src = '/etc/swift/'
+        dst = '/home/m/mjwtom/swift-etc'
+        for ip in ips:
+            args = (usr, ip, port, pwd, src, dst)
+            threads.append(Thread(target=upload, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        cmds = ['sudo -k rm -rf /etc/swift',
+                'sudo -k mv /home/m/mjwtom/swift-etc /etc/swift -f']
+        threads = []
+        for ip in ips:
+            args = (usr, ip, port, pwd, cmds)
+            threads.append(Thread(target=run_cmds, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        src = '/etc/swift/'
+        dst = '/home/m/mjwtom/swift-etc'
+        for ip in ips:
+            print 'uploading %s' % ip
+            upload(usr, ip, port, pwd, src, dst)
+        cmds = ['sudo -k rm -rf /etc/swift',
+                'sudo -k mv /home/m/mjwtom/swift-etc /etc/swift -f']
+        for ip in ips:
+            print 'excuting on %s' % ip
+            run_cmds(usr, ip, port, pwd, cmds)
+
+
+def thread_install(multi_thread=False):
+    if multi_thread:
+        threads = []
+        cmd = 'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop;'
+        for ip in ips:
+            args = (usr, ip, port, pwd, cmd)
+            threads.append(Thread(target=run_cmd, args=args))
+
+        cmd = 'cd /home/mjwtom/swift; /home/mjwtom/bin/python setup.py develop;'
+        args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
         threads.append(Thread(target=run_cmd, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        cmd = 'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop;'
+        for ip in ips:
+            print 'run cmd on %s' % ip
+            run_cmd(usr, ip, port, pwd, cmd)
 
-
-def thread_share_code(tasks=None):
-    threads = []
-    for ip in ips:
-        args = (usr, ip, port, pwd, tasks)
-        threads.append(Thread(target=uploads, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-
-def thread_share_ring():
-    threads = []
-    src = '/etc/swift/'
-    dst = '/home/m/mjwtom/swift-etc'
-    for ip in ips:
-        args = (usr, ip, port, pwd, src, dst)
-        threads.append(Thread(target=upload, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    cmds = ['sudo -k rm -rf /etc/swift',
-            'sudo -k mv /home/m/mjwtom/swift-etc /etc/swift -f']
-    threads = []
-    for ip in ips:
-        args = (usr, ip, port, pwd, cmds)
-        threads.append(Thread(target=run_cmds, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-
-def thread_install():
-    threads = []
-    cmd = 'cd /home/m/mjwtom/swift; /home/m/mjwtom/bin/python setup.py develop;'
-    for ip in ips:
-        args = (usr, ip, port, pwd, cmd)
-        threads.append(Thread(target=run_cmd, args=args))
-
-    cmd = 'cd /home/mjwtom/swift; /home/mjwtom/bin/python setup.py develop;'
-    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
-    threads.append(Thread(target=run_cmd, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+        cmd = 'cd /home/mjwtom/swift; /home/mjwtom/bin/python setup.py develop;'
+        print 'run cmd on 127.0.0.1'
+        run_cmd('mjwtom', '127.0.0.1', 22, 'missing1988', cmd)
 
 
 def make_rings():
@@ -159,24 +191,29 @@ def setup_log():
     run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
-def thread_start_services():
+def thread_start_services(multi_thread=False):
     cmds = ['sudo -k service rsync restart',
             'sudo -k service memcached restart',
             'sudo -k service rsyslog restart',
             'sudo -k chkconfig rsync on',
             'sudo -k chkconfig memcached on',
             'sudo -k chkconfig rsyslog on']
-    threads = []
-    for ip in ips:
-        args = (usr, ip, port, pwd, cmds)
-        threads.append(Thread(target=run_cmds, args=args))
+    if multi_thread:
+        threads = []
+        for ip in ips:
+            args = (usr, ip, port, pwd, cmds)
+            threads.append(Thread(target=run_cmds, args=args))
 
-    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
-    threads.append(Thread(target=run_cmds, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+        args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+        threads.append(Thread(target=run_cmds, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        for ip in ips:
+            run_cmds(usr, ip, port, pwd, cmds)
+        run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
 def thread_file_system():

@@ -5,7 +5,9 @@ from swift.dedupe.summary import DedupeSummary
 import subprocess
 from nodes import proxy_ip
 from test.dedupe.ssh import SSH
-from nodes import file_server, file_dir
+from nodes import file_server, file_server_usr, file_server_port, file_server_pwd
+import pickle
+from random import randint
 
 
 class DeduplicationTest(object):
@@ -63,6 +65,146 @@ class DeduplicationTest(object):
         else:
             print 'wrong'
 
-    def fetch_upload(self, src, dst):
-        client = SSH()
+    def fetch_upload(self, files, tmp_dir):
+        upload_info = []
+        for file in files:
+            print 'fetching %s' % file
+            client = SSH(file_server_usr, file_server, file_server_port, file_server_pwd)
+            pre, filename = os.path.split(file)
+            local_path = os.path.join(tmp_dir, filename)
+            start = DedupeSummary.time()
+            client.transport(local_path, file, 'get')
+            end = DedupeSummary.time()
+            time = DedupeSummary.time_diff(start, end)
+            size = os.path.getsize(local_path)
+            info = 'fech %s to %s, size %d, time %f, throughput %f\n' % (file, local_path, size, time, size/time)
+            self.info(info)
+            cmd = ['/home/m/mjwtom/bin/swift',
+                   '-A',
+                   'http://%s:8080/auth/v1.0' % proxy_ip,
+                   '-U',
+                   'test:tester',
+                   '-K',
+                   'testing',
+                   'upload',
+                   'mjwtom',
+                   local_path]
+            print 'uploading %s' % local_path
+            start = DedupeSummary.time()
+            subprocess.call(cmd)
+            end = DedupeSummary.time()
+            time = DedupeSummary.time_diff(start, end)
+            size = os.path.getsize(local_path)
+            throughput = size/time
+            info = 'upload %s, size %d, time %f, throughput %f\n' % (local_path, size, time, throughput)
+            self.info(info)
+            info = dict(
+                file = local_path,
+                size = size,
+                time = time,
+                throughput = throughput
+            )
+            upload_info.append(info)
+            cmd = ['rm',
+                   '-rf',
+                   local_path]
+            subprocess.call(cmd)
+        return upload_info
 
+    def sequential_download(self, files):
+        download_info = []
+        for file in files:
+            cmd =['/home/mjwtom/bin/swift'
+                  '-A'
+                  'http://%s:8080/auth/v1.0' % proxy_ip,
+                  '-U',
+                  'test:tester',
+                  '-K',
+                  'testing',
+                  'download',
+                  file]
+            start = DedupeSummary.time()
+            subprocess.call(cmd)
+            end = DedupeSummary.time()
+            time = DedupeSummary.time_diff(start, end)
+            size = os.path.getsize(file)
+            throughput = size/time
+            info = 'upload %s, size %d, time %f, throughput %f\n' % (file, size, time, throughput)
+            self.info(info)
+            info = dict(
+                file = file,
+                size = size,
+                time = time,
+                throughput = throughput
+            )
+            download_info.append(info)
+            cmd = ['rm',
+                   '-rf',
+                   file]
+            subprocess.call(cmd)
+        return download_info
+
+    def random_download(self, files):
+        download_info = []
+        l = len(files)
+        while l > 0:
+            index = randint(0, l-1)
+            file = files.pop(index)
+            cmd =['/home/mjwtom/bin/swift'
+                  '-A'
+                  'http://%s:8080/auth/v1.0' % proxy_ip,
+                  '-U',
+                  'test:tester',
+                  '-K',
+                  'testing',
+                  'download',
+                  file]
+            start = DedupeSummary.time()
+            subprocess.call(cmd)
+            end = DedupeSummary.time()
+            time = DedupeSummary.time_diff(start, end)
+            size = os.path.getsize(file)
+            throughput = size/time
+            info = 'download %s, size %d, time %f, throughput %f\n' % (file, size, time, throughput)
+            self.info(info)
+            info = dict(
+                file = file,
+                size = size,
+                time = time,
+                throughput = throughput
+            )
+            download_info.append(info)
+            cmd = ['rm',
+                   '-rf',
+                   file]
+            subprocess.call(cmd)
+            l = len(files)
+        return download_info
+
+    def scan_dir(self, path, pickle_file):
+        if not os.path.exists(path):
+            print 'path does not exist'
+        def deep_scan(path, files):
+            if os.path.isfile(path):
+                files.append(path)
+            else:
+                if os.path.isdir(path):
+                    for file in os.listdir(path):
+                        subpath = os.path.join(path, file)
+                        deep_scan(subpath, files)
+
+        files = []
+        deep_scan(path, files)
+        out = open(pickle_file, 'wb')
+        pickle.dump(files, out)
+        out.close()
+
+    def get_files(self, pickle_file):
+        inf = open(pickle_file, 'rb')
+        files = pickle.load(inf)
+        inf.close()
+        return files
+
+    def print_files(self, files):
+        for file in files:
+            print file

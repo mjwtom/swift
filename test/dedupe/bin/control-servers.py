@@ -6,7 +6,7 @@ from threading import Thread
 from nodes import ips, usr, pwd, port
 
 
-def start_all():
+def start_all(muti_thread=False):
     servers = dict()
     servers['object-server'] = []
     servers['container-server'] = []
@@ -19,51 +19,69 @@ def start_all():
             cmds = ['sudo -k service iptables stop',
                    '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
                   '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)]
-            args = (usr, ip, port, pwd, cmds)
-            servers[server].append(Thread(target=run_cmds, args=args))
+            if muti_thread:
+                args = (usr, ip, port, pwd, cmds)
+                servers[server].append(Thread(target=run_cmds, args=args))
+            else:
+                run_cmds(usr, ip, port, pwd, cmds)
     print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
     cmds = ['sudo -k service iptables stop',
            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
-    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
-    servers['proxy-server'].append(Thread(target=run_cmds, args=args))
-    threads = [server for server_name, serverlist in servers.items() for server in serverlist]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    if muti_thread:
+        args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+        servers['proxy-server'].append(Thread(target=run_cmds, args=args))
+    else:
+        run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
+    if muti_thread:
+        threads = [server for server_name, serverlist in servers.items() for server in serverlist]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
 
-def kill_all():
-    threads = []
+def kill_all(multi_thread=False):
     servers = ['object-server', 'container-server', 'account-server', 'proxy-server']
     cmds = []
     for name in servers:
         cmd = 'ps -aux | grep swift-%s | grep -v grep | cut -c 9-15 | xargs kill -s 9' % name
         cmds.append(cmd)
-    for ip in ips:
-        print 'killing the servers in node %s' % ip
-        args = (usr, ip, port, pwd, cmds)
+    if multi_thread:
+        threads = []
+        for ip in ips:
+            print 'killing the servers in node %s' % ip
+            args = (usr, ip, port, pwd, cmds)
+            threads.append(Thread(target=run_cmds, args=args))
+        args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
         threads.append(Thread(target=run_cmds, args=args))
-    args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
-    threads.append(Thread(target=run_cmds, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        for ip in ips:
+            print 'killing the servers in node %s' % ip
+            run_cmds(usr, ip, port, pwd, cmds)
+        run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
-def clean_data():
-    threads = []
+def clean_data(multi_thread=False):
     cmd = 'rm -rf /home/m/mjwtom/swift-data/sdb1/*'
-    for ip in ips:
-        print 'removing the data in node %s' % ip
-        args = (usr, ip, port, pwd, cmd)
-        threads.append(Thread(target=run_cmd, args=args))
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    if multi_thread:
+        threads = []
+        for ip in ips:
+            print 'removing the data in node %s' % ip
+            args = (usr, ip, port, pwd, cmd)
+            threads.append(Thread(target=run_cmd, args=args))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        for ip in ips:
+            print 'removing the data in node %s' % ip
+            run_cmd(usr, ip, port, pwd, cmd)
 
 
 def reset_all():
