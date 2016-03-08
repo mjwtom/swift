@@ -251,7 +251,8 @@ softwares_swift = ['curl',
                     'python-netifaces',
                     'python-pip',
                     'python-dns',
-                    'python-mock']
+                    'python-mock',
+                    'memcached']
 
 softwares_python = ['zlib-devel',
              'bzip2-devel',

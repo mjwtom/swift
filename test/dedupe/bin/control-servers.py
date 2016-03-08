@@ -16,7 +16,7 @@ def start_all(muti_thread=False):
     for ip in ips:
         for server in server_names:
             print 'starting %s on %s' % (server, ip)
-            cmds = ['sudo -k service iptables stop',
+            cmds = ['sudo -k service memcached restart',
                    '/home/m/mjwtom/bin/python /home/m/mjwtom/swift/bin/swift-%s ' \
                   '/home/m/mjwtom/swift/test/dedupe/swift/%s.conf' % (server, server)]
             if muti_thread:
@@ -25,7 +25,7 @@ def start_all(muti_thread=False):
             else:
                 run_cmds(usr, ip, port, pwd, cmds)
     print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
-    cmds = ['sudo -k service iptables stop',
+    cmds = ['sudo -k service memcached restart',
            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
     if muti_thread:
@@ -53,6 +53,7 @@ def kill_all(multi_thread=False):
             print 'killing the servers in node %s' % ip
             args = (usr, ip, port, pwd, cmds)
             threads.append(Thread(target=run_cmds, args=args))
+        print 'killing the servers in node 127.0.0.1'
         args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
         threads.append(Thread(target=run_cmds, args=args))
         for thread in threads:
@@ -63,6 +64,7 @@ def kill_all(multi_thread=False):
         for ip in ips:
             print 'killing the servers in node %s' % ip
             run_cmds(usr, ip, port, pwd, cmds)
+        print 'killing the servers in node 127.0.0.1'
         run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
