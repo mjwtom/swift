@@ -67,6 +67,7 @@ class DeduplicationTest(object):
 
     def fetch_upload(self, files, tmp_dir):
         upload_info = []
+        upload_files = []
         for file in files:
             print 'fetching %s' % file
             client = SSH(file_server_usr, file_server, file_server_port, file_server_pwd)
@@ -90,16 +91,6 @@ class DeduplicationTest(object):
                    'upload',
                    'mjwtom',
                    local_path]
-            cmd = ['swift',
-                   '-A',
-                   'http://%s:8080/auth/v1.0' % proxy_ip,
-                   '-U',
-                   'test:tester',
-                   '-K',
-                   'testing',
-                   'upload',
-                   'mjwtom',
-                   local_path]
             print 'uploading %s' % local_path
             start = time()
             ret = subprocess.call(cmd)
@@ -114,6 +105,7 @@ class DeduplicationTest(object):
             info = 'upload %s, size %d, time %f, throughput %f\n' % (local_path, size, time_used, throughput)
             print info
             self.info(info)
+            upload_files.append(local_path)
             info = dict(
                 file = local_path,
                 size = size,
@@ -124,21 +116,31 @@ class DeduplicationTest(object):
             cmd = ['rm',
                    '-rf',
                    local_path]
-            subprocess.call(cmd)
-        return upload_info
+            ret = subprocess.call(cmd)
+            if ret == 0:
+                print 'successfully remove file %s' % local_path
+            else:
+                print 'failed to remove file %s' % local_path
+        return upload_info, upload_files
 
     def download(self, file):
-        cmd =['/home/mjwtom/bin/swift'
-                  '-A'
+        cmd =['/home/m/mjwtom/bin/swift',
+                  '-A',
                   'http://%s:8080/auth/v1.0' % proxy_ip,
                   '-U',
                   'test:tester',
                   '-K',
                   'testing',
                   'download',
+              'mjwtom',
                   file]
+        print 'downloading file %s' % file
         start = time()
-        subprocess.call(cmd)
+        ret = subprocess.call(cmd)
+        if ret == 0:
+            print 'successfully downlaod file %s' % file
+        else:
+            print 'failed to download file %s' % file
         end = time()
         time_used = time_diff(start, end)
         size = os.path.getsize(file)
@@ -152,42 +154,56 @@ class DeduplicationTest(object):
             time = time_used,
             throughput = throughput
         )
+        path = os.getcwd()
+        path += file
         cmd = ['rm',
                '-rf',
-               file]
-        subprocess.call(cmd)
+               path]
+        print 'removing file %s' % path
+        ret = subprocess.call(cmd)
+        if ret == 0:
+            print 'successfully remove file %s' % file
+        else:
+            print 'failed to remove file %s' % file
         return info
 
     def sequential_download(self, files):
+        download_files = []
         download_info = []
         for file in files:
             download_info.append(self.download(file))
-        return download_info
+            download_files.append(file)
+        return download_info, download_files
 
     def random_download(self, files):
+        download_files = []
         download_info = []
-        l = len(files)
+        rnd_files = files[:]
+        l = len(rnd_files)
         while l > 0:
             index = randint(0, l-1)
-            file = files.pop(index)
+            file = rnd_files.pop(index)
             download_info.append(self.download(file))
-            l = len(files)
-        return download_info
+            download_files.append(file)
+            l = len(rnd_files)
+        return download_info, download_files
 
-    def scan_dir(self, path, pickle_file):
+    def scan_dir(self, path, pickle_file, min_size=0):
         if not os.path.exists(path):
             print 'path does not exist'
-        def deep_scan(path, files):
+        def deep_scan(path, files, min_size):
             if os.path.isfile(path):
-                files.append(path)
+                size = os.path.getsize(path)
+                if size >= min_size:
+                    files.append(path)
             else:
                 if os.path.isdir(path):
                     for file in os.listdir(path):
                         subpath = os.path.join(path, file)
-                        deep_scan(subpath, files)
+                        deep_scan(subpath, files, min_size)
 
         files = []
-        deep_scan(path, files)
+        deep_scan(path, files, min_size)
         out = open(pickle_file, 'wb')
         pickle.dump(files, out)
         out.close()

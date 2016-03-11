@@ -3,7 +3,7 @@
 import sys
 from test.dedupe.ssh import run_cmd, run_cmds
 from threading import Thread
-from nodes import ips, usr, pwd, port
+from nodes import storage_nodes as ips, usr, pwd, port
 
 
 def start_all(muti_thread=False):

@@ -25,13 +25,12 @@ storage_nodes = ['220.113.20.142', #'220.113.20.150'
        '220.113.20.129',
        '220.113.20.131']
 
-ips_vm = ['220.113.20.141',
-          '220.113.20.142',
-          '220.113.20.143',
-          '220.113.20.144']
+ips_vm = ['221.114.21.141',
+          '221.114.21.142',
+          '221.114.21.143',
+          '221.114.21.144']
 
 ips = ips_nbjl
-ips = ips_vm
 usr = 'm'
 port = 22
 pwd = 'softraid'
@@ -44,8 +43,11 @@ file_server_usr = 'mjw'
 file_server_port = 22
 file_server_pwd = 'missing'
 
-
+'''
+ips = ips_vm;
+storage_nodes = ips_vm
 file_server = '220.113.20.1'
 file_server_usr = 'mjwtom'
 file_server_port = 22
 file_server_pwd = 'missing1988'
+'''

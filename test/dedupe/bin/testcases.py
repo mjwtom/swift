@@ -2,7 +2,6 @@ import sys
 from test.dedupe.bin.DedupeTest import DeduplicationTest
 import os
 import pickle
-from copy import copy
 
 
 log_file_normal = '/home/m/mjwtom/test/vm-normal.txt'
@@ -15,6 +14,7 @@ seq_download = '/home/m/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
 rnd_download = '/home/m/mjwtom/test/vm-normal-random-download-result.pickle'
 
 ####
+'''
 log_file_normal = '/home/mjwtom/test/vm-normal.txt'
 pickle_vm = '/home/mjwtom/test/vm.pickle'
 
@@ -23,9 +23,11 @@ tmp_dir = '/home/mjwtom/tmp'
 normal_upload = '/home/mjwtom/test/vm-normal-upload-result.pickle'
 seq_download = '/home/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
 rnd_download = '/home/mjwtom/test/vm-normal-random-download-result.pickle'
+'''
 
 
 def test_normal():
+
     dir, file = os.path.split(log_file_normal)
     if not os.path.exists(dir):
         os.makedirs(dir)
@@ -33,23 +35,26 @@ def test_normal():
     files = test.get_files(pickle_vm)
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
-    result = test.fetch_upload(files, tmp_dir)
+    result, uploaded_files = test.fetch_upload(files, tmp_dir)
     out = open(normal_upload, 'wb')
     pickle.dump(result, out)
     out.close()
 
-    uploaded_files = []
-    for info in result:
-        uploaded_files.append(info.get('file'))
+    '''
+    f = open(normal_upload, 'rb')
+    result = pickle.load(f)
+    f.close()
+    uploaded_files = [info['file'][1:] for info in result]
+    test = DeduplicationTest(log_file_normal)
+    '''
 
-    uploaded_files_2 = copy(uploaded_files)
-
-    result = test.sequential_download(uploaded_files)
+    uploaded_files = [file[1:] for file in uploaded_files]
+    result, download_files = test.sequential_download(uploaded_files)
     out = open(seq_download, 'wb')
     pickle.dump(result, out)
     out.close()
 
-    result = test.random_download(uploaded_files_2)
+    result, download_files = test.random_download(uploaded_files)
     out = open(rnd_download, 'wb')
     pickle.dump(result, out)
     out.close()

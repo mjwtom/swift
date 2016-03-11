@@ -4,12 +4,12 @@
 from test.dedupe.ssh import uploads
 import os
 
-ip = '222.30.48.9'
+ip = 'localhost'
 usr = 'mjwtom'
 port = 9030
 pwd = 'missing1988'
 
-src = '/home/mjwtom/PycharmProjects/swift/'
+src = '/home/mjwtom/swift/'
 dst = '/home/mjwtom/swift/'
 
 tasks = []

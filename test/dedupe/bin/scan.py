@@ -8,8 +8,12 @@ if __name__ == '__main__':
         exit()
     dir = sys.argv[1]
     pickle_file = sys.argv[2]
+    if len(sys.argv) > 3:
+        min_size = int(sys.argv[3])
+    else:
+        min_size = 0
     test = DeduplicationTest('/tmp/scan.txt')
-    test.scan_dir(dir, pickle_file)
+    test.scan_dir(dir, pickle_file, min_size)
 
     files = test.get_files(pickle_file)
     test.print_files(files)

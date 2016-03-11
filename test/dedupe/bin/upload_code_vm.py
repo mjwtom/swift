@@ -2,11 +2,15 @@
 # -*- coding: utf-8 -*-
 
 from test.dedupe.ssh import uploads
+import os
 
-ip = '220.113.20.30'
+ip = '221.114.21.30'
 usr = 'mjwtom'
 port = 22
 pwd = 'missing1988'
+
+
+ip = '120.24.80.98'
 
 tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/'),
          ('/home/mjwtom/PycharmProjects/python-swiftclient/', '/home/mjwtom/python-swiftclient/'),
@@ -15,5 +19,17 @@ tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/'),
          ('/home/mjwtom/Downloads/pip-8.0.2.tar.gz', '/home/mjwtom/pip-8.0.2.tar.gz')]
 
 tasks = [('/home/mjwtom/PycharmProjects/swift/', '/home/mjwtom/swift/')]
+
+src = '/home/mjwtom/PycharmProjects/swift/'
+dst = '/home/mjwtom/swift/'
+
+tasks = []
+
+for file in os.listdir(src):
+    if file == '.git':
+        continue
+    src_sub = os.path.join(src, file)
+    dst_sub = os.path.join(dst, file)
+    tasks.append((src_sub, dst_sub))
 
 uploads(usr, ip, port, pwd, tasks)

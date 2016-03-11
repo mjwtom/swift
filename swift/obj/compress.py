@@ -17,7 +17,7 @@ use lz4 downloaded from https://github.com/steeve/python-lz4
 
 class Compress(object):
     def __init__(self, conf, logger=None, thread_num=16, queue_len=None):
-        self.logger = logger or get_logger(conf, log_route='compression')
+        self.logger = logger or get_logger(conf, log_route='object-server')
         self.method = conf.get('compress_method', 'lz4hc')
         self.async = config_true_value(conf.get('async_compress', 'true'))
         self._diskfile_router = DiskFileRouter(conf, self.logger)
@@ -107,10 +107,11 @@ class Compress(object):
         return True
 
     def compress_file(self, info):
-        if info.get('compressed'):
-            return
         metadata, data = self._get(info)
+        orig_size = len(data)
         data = compress(data, self.method)
+        compressed_size = len(data)
+        object_name = info.get('object')
         etag = md5(data)
         metadata['Content-Length'] = str(len(data))
         metadata['X-Object-Sysmeta-Compressed'] = 'yes'
@@ -120,6 +121,10 @@ class Compress(object):
         metadata['X-Timestamp'] = Timestamp(time()).internal
         self._delete(info)
         self._put(info, metadata, data)
+
+        message = 'object name %s,original size %d, compressed size %d\n' % (object_name, orig_size, compressed_size)
+        self.logger.info(message)
+
 
     def run(self, queue):
         while True:
