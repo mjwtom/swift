@@ -180,14 +180,25 @@ def run_cmds(usr='root', ip='127.0.0.1', port=22, pwd=None, cmds=None):
         run_cmd(usr, ip, port, pwd, cmd)
 
 
-def upload(usr='root', ip='127.0.0.1', port=22, pwd=None, src=None, dst=None):
+def upload(usr='root', ip='127.0.0.1', port=22, pwd=None, local=None, remote=None):
     try:
         client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
-        client.transport(src, dst, 'put', True)
+        client.transport(local, remote, 'put', True)
     except Exception as e:
-        print 'cannot transport the file %s to %s, error:' % (src, ip), e
+        print 'cannot transport the file %s to %s, error:' % (local, ip), e
 
 
 def uploads(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
-    for src, dst in tasks:
-        upload(usr, ip,  port, pwd, src, dst)
+    for local, remote in tasks:
+        upload(usr, ip,  port, pwd, local, remote)
+
+def download(usr='root', ip='127.0.0.1', port=22, pwd=None, local=None, remote=None):
+    try:
+        client = SSH(usr=usr, ip=ip, port=port, pwd=pwd)
+        client.transport(local, remote, 'get', True)
+    except Exception as e:
+        print 'cannot transport the file %s to %s, error:' % (src, ip), e
+
+def downloads(usr='root', ip='127.0.0.1', port=22, pwd=None, tasks=None):
+    for local, remote in tasks:
+        download(usr, ip,  port, pwd, local, remote)

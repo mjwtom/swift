@@ -46,8 +46,9 @@ file_server_pwd = 'missing'
 '''
 ips = ips_vm;
 storage_nodes = ips_vm
-file_server = '220.113.20.1'
+file_server = '127.0.0.1'
 file_server_usr = 'mjwtom'
 file_server_port = 22
 file_server_pwd = 'missing1988'
+proxy_ip = '127.0.0.1'
 '''

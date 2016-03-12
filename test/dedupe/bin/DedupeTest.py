@@ -155,7 +155,7 @@ class DeduplicationTest(object):
             throughput = throughput
         )
         path = os.getcwd()
-        path += file
+        path = os.path.join(path, file)
         cmd = ['rm',
                '-rf',
                path]

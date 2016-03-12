@@ -10,7 +10,7 @@ import pickle
 from hashlib import md5
 from nodes import storage_nodes as ips, usr, port, pwd
 from threading import Thread
-from test.dedupe.ssh import run_cmd
+from test.dedupe.ssh import run_cmd, download
 
 
 def compare(path, blksize=16*1024*1024):
@@ -100,6 +100,16 @@ def thread_node_compress():
     for thread in threads:
         thread.join()
 
+def collect():
+    remote = '/home/m/mjwtom/compression.pickle'
+    dir = '/home/mjwtom/compression-vm'
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    for ip in ips:
+        local = dir + ('/%s.pickle' % ip)
+        download(usr, ip, port, pwd, local, remote)
+
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -110,5 +120,7 @@ if __name__ == '__main__':
             compare(sys.argv[1])
         elif sys.argv[1] == 'storage_compress':
             thread_node_compress()
+        elif sys.argv[1] == 'collect':
+            collect()
     else:
         compress_files(sys.argv[1], sys.argv[2])

@@ -36,7 +36,7 @@ class ChunkStore(object):
         self.next_dc_id = int(conf.get('next_dc_id', 0))
         self.container = None
         self.new_container()
-        self.container_fp_dir = conf.get('dedupe_container_fp_dir', '/tmp/swift/container_fp/')
+        self.container_fp_dir = conf.get('dedupe_container_fp_dir', '/var/swift/container_fp/')
         self.sqlite_index = config_true_value(conf.get('sqlite_index', 'false'))
         if self.sqlite_index:
             self.index = DatabaseTable(conf)

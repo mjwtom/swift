@@ -46,7 +46,7 @@ class DiskHashTable(object):
     def __init__(self, conf):
         self.index_size = int(conf.get('disk_hash_table_index_size', 1024))
         self.direct_io = config_true_value(conf.get('disk_hash_table_directio', 'false'))
-        self.disk_hash_dir = conf.get('disk_hash_table_dir', '/tmp/swift/disk-hash/')
+        self.disk_hash_dir = conf.get('disk_hash_table_dir', '/var/swift/disk-hash/')
         self.flus_size = int(conf.get('disk_hash_table_flush_size', 1024))
         self.memory_bucket = []
         self.bucket_lens = []

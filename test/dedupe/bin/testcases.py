@@ -4,16 +4,16 @@ import os
 import pickle
 
 
-log_file_normal = '/home/m/mjwtom/test/vm-normal.txt'
+log_file_normal = '/home/m/mjwtom/test/vm-eager.txt'
 pickle_vm = '/home/m/mjwtom/test/vm.pickle'
 
 tmp_dir = '/home/m/mjwtom/tmp'
 
-normal_upload = '/home/m/mjwtom/test/vm-normal-upload-result.pickle'
-seq_download = '/home/m/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
-rnd_download = '/home/m/mjwtom/test/vm-normal-random-download-result.pickle'
+normal_upload = '/home/m/mjwtom/test/vm-eager-upload-result.pickle'
+seq_download = '/home/m/mjwtom/test/vm-eager-sequetianl-download-result.pickle'
+rnd_download = '/home/m/mjwtom/test/vm-eager-random-download-result.pickle'
 
-####
+#### test on the local machine
 '''
 log_file_normal = '/home/mjwtom/test/vm-normal.txt'
 pickle_vm = '/home/mjwtom/test/vm.pickle'
@@ -24,6 +24,7 @@ normal_upload = '/home/mjwtom/test/vm-normal-upload-result.pickle'
 seq_download = '/home/mjwtom/test/vm-normal-sequetianl-download-result.pickle'
 rnd_download = '/home/mjwtom/test/vm-normal-random-download-result.pickle'
 '''
+
 
 
 def test_normal():
@@ -39,14 +40,6 @@ def test_normal():
     out = open(normal_upload, 'wb')
     pickle.dump(result, out)
     out.close()
-
-    '''
-    f = open(normal_upload, 'rb')
-    result = pickle.load(f)
-    f.close()
-    uploaded_files = [info['file'][1:] for info in result]
-    test = DeduplicationTest(log_file_normal)
-    '''
 
     uploaded_files = [file[1:] for file in uploaded_files]
     result, download_files = test.sequential_download(uploaded_files)
