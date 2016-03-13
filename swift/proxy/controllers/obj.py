@@ -2742,7 +2742,8 @@ class DeduplicationObjectController(BaseObjectController):
         chunk_store = self.app.chunk_store
         info_db = self.app.info_database
         fixed_chunk = self.app.fixed_chunk
-        chunk_source = ChunkIter(data_source, fixed_chunk)
+        chunk_size = self.app.chunk_size
+        chunk_source = ChunkIter(data_source, fixed_chunk, target=chunk_size)
         dedupe_start = chunk_store.summary.time()
         for chunk in chunk_source:
             dedupe_end = chunk_store.summary.time()

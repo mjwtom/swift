@@ -1,5 +1,5 @@
 from swift.common.exceptions import ChunkReadTimeout
-from rabin import Rabin
+from rabin import Rabin, set_prime, set_window_size, set_min_block_size, set_max_block_size, set_average_block_size
 
 
 class RabinKarp(object):
@@ -124,7 +124,7 @@ class ChunkIterC(object):
     This class is to chunk the data string in to chunks based on cdc chunking method
     '''
 
-    def __init__(self, data_src, fixed_size= False, target=8192, win_size=48, min=512, max=16 * 1024, MAGIC=13, max_buf_size = 1024*1024*8):
+    def __init__(self, data_src, fixed_size= False, target=4096, win_size=48, min=512, max=16 * 1024, MAGIC=13, max_buf_size = 1024*1024*8):
         '''
         TO chunk the data according the the rabin fingerprint
         '''
@@ -140,6 +140,11 @@ class ChunkIterC(object):
         self.left_len = 0
         if not self.fixed_size:
             self.rabin = Rabin()
+            set_prime(MAGIC)
+            set_window_size(win_size)
+            set_max_block_size(max)
+            set_min_block_size(min)
+            set_average_block_size(target)
             self.max_buf_size = max_buf_size
             self.split = []
             self.frag = ''

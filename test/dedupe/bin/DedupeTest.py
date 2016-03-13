@@ -49,13 +49,13 @@ class DeduplicationTest(object):
             subprocess.call(cmd)
             dedupe_end = time()
             time_used = time_diff(dedupe_start, dedupe_end)
-            size = os.path.getsize(file)
+            size = os.path.getsize(path)
             throughput = size/time_used
             info = dict(
-                file = path,
-                size = size,
-                time = time_used,
-                throughput = throughput
+                file=path,
+                size=size,
+                time=time_used,
+                throughput=throughput
             )
             self.uploads.append(info)
         elif os.path.isdir(path):
@@ -138,14 +138,14 @@ class DeduplicationTest(object):
         start = time()
         ret = subprocess.call(cmd)
         if ret == 0:
-            print 'successfully downlaod file %s' % file
+            print 'successfully download file %s' % file
         else:
             print 'failed to download file %s' % file
         end = time()
         time_used = time_diff(start, end)
         size = os.path.getsize(file)
         throughput = size/time_used
-        info = 'upload %s, size %d, time %f, throughput %f\n' % (file, size, time_used, throughput)
+        info = 'download %s, size %d, time %f, throughput %f\n' % (file, size, time_used, throughput)
         print info
         self.info(info)
         info = dict(
@@ -191,6 +191,7 @@ class DeduplicationTest(object):
     def scan_dir(self, path, pickle_file, min_size=0):
         if not os.path.exists(path):
             print 'path does not exist'
+
         def deep_scan(path, files, min_size):
             if os.path.isfile(path):
                 size = os.path.getsize(path)

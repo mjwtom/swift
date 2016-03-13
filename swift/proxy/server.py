@@ -94,6 +94,7 @@ class Application(object):
             self.chunk_store = ChunkStore(conf, self)
             self.info_database = InformationDatabase(conf)
             self.fixed_chunk = config_true_value(conf.get('fixed_chunk', 'false'))
+            self.chunk_size = int(conf.get('chunk_size', 4096))
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir

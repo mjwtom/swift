@@ -75,6 +75,7 @@ def compress_files(path, dst_file):
                 compressed_size = compressed_size
             )
             result.append(info)
+            print '%s original size %d, compressed size %d' % (name, orig_size, compressed_size)
         else:
             for file in os.listdir(path):
                 subpath = os.path.join(path, file)

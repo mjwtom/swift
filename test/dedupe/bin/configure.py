@@ -183,11 +183,13 @@ def replace_etc_swift():
 
 
 def setup_log():
-    cmds = ['sudo -k mkdir -p /var/log/swift/hourly',
+    cmds = ['sudo -k service rsyslog stop',
+            'sudo -k rm -rf /var/log/swift/*'
+            'sudo -k mkdir -p /var/log/swift/hourly',
             'sudo -k chown -R root:adm /var/log/swift',
             'sudo -k chmod -R g+w /var/log/swift',
             'sudo -k cp -f /home/m/mjwtom/swift/test/dedupe/rsyslog.d/10-swift.conf /etc/rsyslog.d/',
-            'sudo service rsyslog restart']
+            'sudo -k service rsyslog restart']
     run_cmds('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
 
 
