@@ -36,6 +36,8 @@ class RespBodyIter(object):
             info = self.chunk_store.summary.get_info()
             for entry in info:
                 self.chunk_store.logger.info(entry)
+            self.chunk_store.log_message([self.controller.object_name])
+            self.chunk_store.log_message(info)
 
             raise StopIteration
         else:

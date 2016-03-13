@@ -23,6 +23,7 @@ class ChunkStore(object):
         self.app = app
         self.object_controller = None
         self.req = None
+        self.mylogpath = conf.get('mylog', '/tmp/deduplication.txt')
         self.direct_io = config_true_value(conf.get('load_fp_directio', 'false'))
         self.chunk_store_version = conf.get('chunk_store_version', 'v1')
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
@@ -83,6 +84,17 @@ class ChunkStore(object):
 
     def hash(self, data):
         return md5(data).hexdigest()
+
+    def log_message(self, messages):
+        dir, filename = os.path.split(self.mylogpath)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        f = open(self.mylogpath, 'a')
+        for m in messages:
+            f.write(m+'\n')
+        f.write('\n')
+        f.flush()
+        f.close()
 
     def new_container(self):
         self.container = DedupeContainer(str(self.next_dc_id), self.dc_size)
@@ -218,21 +230,29 @@ class ChunkStore(object):
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):
+        dedupe_start = self.summary.time()
         if not fp in self.bf:
             self.bf.add(fp)
             container_id = self.store(fp, chunk)
             self.index.put(fp, container_id)
             return
+
         self.current_continue_dup += 1
         if self._get_from_cache(self.fp_cache, fp):
             self.summary.dupe_size += len(chunk) # for summary
             self.summary.dupe_chunk += 1 # for summary
+            dedupe_end = self.summary.time()
+            time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
+            self.summary.fp_lookup_time += time_diff
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
             self.current_continue_dup = 0
         self.dup_cluster[fp] = chunk
         self.index.buf(fp, self.dup_cluster)
+        dedupe_end = self.summary.time()
+        time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
+        self.summary.fp_lookup_time += time_diff
 
     def lazy_callback(self, result):
         load_container_set = set()
@@ -263,15 +283,22 @@ class ChunkStore(object):
                     del cluster[fp]
 
     def _eager_dedupe(self, fp, chunk):
+        dedupe_start = self.summary.time()
         if fp in self.bf:
             if self._get_from_cache(self.fp_cache, fp):
                 self.summary.dupe_size += len(chunk) # for summary
                 self.summary.dupe_chunk += 1 # for summary
+                dedupe_end = self.summary.time()
+                time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
+                self.summary.fp_lookup_time += time_diff
                 return
             container_id = self.index.get(fp)
             if container_id:
                 self.summary.dupe_size += len(chunk) # for summary
                 self.summary.dupe_chunk += 1 # for summary
+                dedupe_end = self.summary.time()
+                time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
+                self.summary.fp_lookup_time += time_diff
                 self._fill_cache_with_container_fp(container_id)
                 return
         self.bf.add(fp)

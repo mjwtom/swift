@@ -2779,6 +2779,9 @@ class DeduplicationObjectController(BaseObjectController):
         for entry in info:
             chunk_store.logger.info(entry)
 
+        chunk_store.log_message([self.object_name])
+        chunk_store.log_message(info)
+
         return update_response(req, resp)
 
     @public
