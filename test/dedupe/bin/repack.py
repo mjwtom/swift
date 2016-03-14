@@ -38,12 +38,13 @@ def repack_tar(path):
             repack_tar(subpath)
 
 
-def stream_data(path):
+def stream_data(path, append=True):
 
     def recur_data(path, f, recipe, offset):
         if not os.path.exists(path):
             print 'no such file' % path
             return 0
+        _, filename = os.path.split(path)
         if os.path.isfile(path):
             fin = open(path, 'rb')
             data = fin.read()
@@ -53,10 +54,11 @@ def stream_data(path):
             size = os.path.getsize(path)
             if l != size:
                 print 'wrong read'
-            recipe.append((path, offset, l))
+            recipe.append((filename, offset, l))
             offset += l
             return offset
         else:
+            recipe.append((filename, offset, 0))
             files = os.listdir(path)
             files.sort()
             for file in files:
@@ -87,17 +89,19 @@ def stream_data(path):
             f = open(outfile, 'wb')
             print 'reading data...'
             recur_data(outdir, f, recipe, 0)
-            f.close()
             data = pickle.dumps(recipe)
-            data = zlib.compress(data)
-            outfile = os.path.join(dir, name+'.ZlibCompressedRecipe')
-            f = open(outfile, 'wb')
-            pickle.dump(data, f)
+            if append:
+                f.write(data)
+            else:
+                data = zlib.compress(data)
+                outfile = os.path.join(dir, name+'.ZlibCompressedRecipe')
+                fout = open(outfile, 'wb')
+                pickle.dump(data, fout)
+                fout.close()
             f.close()
-            newpath = os.path.join(dir, name)
             cmd = ['rm',
                    '-rf',
-                   newpath]
+                   outdir]
             subprocess.call(cmd)
     else:
         files = os.listdir(path)

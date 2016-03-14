@@ -5,7 +5,7 @@ from swift.dedupe.time import time, time_diff
 import subprocess
 
 proxy_ip = '127.0.0.1'
-files_dir = '/home/mjwtom/kernel/'
+
 
 def upload(path):
     cmd = ['swift',
@@ -39,19 +39,17 @@ def upload(path):
     return info
 
 
-def test_upload(pickle_file, result_path, files_dir):
-    if not os.path.exists(pickle_file):
-        print 'no pickle  file to read: %s' % pickle_file
+def test_upload(data_path, result_path):
+    if not os.path.exists(data_path):
+        print 'no such directory'
+        return
     if not os.path.exists(result_path):
         os.makedirs(result_path)
 
-    fin = open(pickle_file, 'rb')
-    files = pickle.load(fin)
-    fin.close()
     result = []
-    for f in files:
-        dir, fname = os.path.split(f)
-        path = os.path.join(files_dir, fname)
+    for f in os.listdir(data_path):
+        _, fname = os.path.split(f)
+        path = os.path.join(data_path, fname)
         result.append(upload(path))
     uploaded_pickle = os.path.join(result_path, 'upload_result.pickle')
     out = open(uploaded_pickle, 'wb')
@@ -60,9 +58,9 @@ def test_upload(pickle_file, result_path, files_dir):
 
 
 if __name__=='__main__':
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print 'pleas give the case to test'
         exit()
-    pickle_path = sys.argv[1]
+    data_path = sys.argv[1]
     result_path = sys.argv[2]
-    test_upload(pickle_path, result_path, files_dir)
+    test_upload(data_path, result_path)
