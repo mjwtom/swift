@@ -34,30 +34,39 @@ class DeduplicationTest(object):
             pass
 
     def upload(self, path):
+        cmd = ['/home/m/mjwtom/bin/swift',
+               '-A',
+               'http://%s:8080/auth/v1.0' % proxy_ip,
+               '-U',
+               'test:tester',
+               '-K',
+               'testing',
+               'upload',
+               'mjwtom',
+               path]
+        print 'uploading %s' % path
+        start = time()
+        ret = subprocess.call(cmd)
+        end = time()
+        if ret == 0:
+            print 'success upload file'
+        else:
+            print 'fail to upload file'
+        time_used = time_diff(start, end)
+        size = os.path.getsize(path)
+        throughput = size/time_used
+        print 'upload %s, size %d, time %f, throughput %f\n' % (path, size, time_used, throughput)
+        info = dict(
+            file = path,
+            size = size,
+            time = time_used,
+            throughput = throughput
+        )
+        return info
+
+    def upload_dir(self, path):
         if os.path.isfile(path):
-            cmd = ['/home/m/mjwtom/bin/swift',
-                   '-A',
-                   'http://%s:8080/auth/v1.0' % proxy_ip,
-                   '-U',
-                   'test:tester',
-                   '-K',
-                   'testing',
-                   'upload',
-                   'mjwtom',
-                   path]
-            dedupe_start = time()
-            subprocess.call(cmd)
-            dedupe_end = time()
-            time_used = time_diff(dedupe_start, dedupe_end)
-            size = os.path.getsize(path)
-            throughput = size/time_used
-            info = dict(
-                file=path,
-                size=size,
-                time=time_used,
-                throughput=throughput
-            )
-            self.uploads.append(info)
+            self.upload(path)
         elif os.path.isdir(path):
             for file in os.listdir(path):
                 subpath = os.path.join(path, file)
@@ -81,37 +90,8 @@ class DeduplicationTest(object):
             info = 'fech %s to %s, size %d, time %f, throughput %f\n' % (file, local_path, size, time_used, size/time_used)
             print info
             self.info(info)
-            cmd = ['/home/m/mjwtom/bin/swift',
-                   '-A',
-                   'http://%s:8080/auth/v1.0' % proxy_ip,
-                   '-U',
-                   'test:tester',
-                   '-K',
-                   'testing',
-                   'upload',
-                   'mjwtom',
-                   local_path]
-            print 'uploading %s' % local_path
-            start = time()
-            ret = subprocess.call(cmd)
-            end = time()
-            if ret == 0:
-                print 'success upload file'
-            else:
-                print 'fail to upload file'
-            time_used = time_diff(start, end)
-            size = os.path.getsize(local_path)
-            throughput = size/time_used
-            info = 'upload %s, size %d, time %f, throughput %f\n' % (local_path, size, time_used, throughput)
-            print info
-            self.info(info)
+            info = self.upload(local_path)
             upload_files.append(local_path)
-            info = dict(
-                file = local_path,
-                size = size,
-                time = time_used,
-                throughput = throughput
-            )
             upload_info.append(info)
             cmd = ['rm',
                    '-rf',

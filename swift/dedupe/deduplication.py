@@ -1,4 +1,4 @@
-from pybloom import BloomFilter
+from pybloom import ScalableBloomFilter
 from swift.dedupe.dedupe_container import DedupeContainer
 from swift.dedupe.summary import DedupeSummary
 from swift.common.utils import config_true_value, get_logger
@@ -16,6 +16,7 @@ from eventlet.queue import Queue
 from swift.common.utils import ContextPool
 from copy import copy
 from swift.dedupe.compress import compress, decompress
+import shutil
 
 
 class ChunkStore(object):
@@ -31,13 +32,18 @@ class ChunkStore(object):
         self.fp_cache = LRU(int(conf.get('cache_size', 65536)))
         self.pool = LRU(int(conf.get('pool_size', 8)))
         self.compress_pool = LRU(int(conf.get('compress_pool_size', 64)))
-        self.bf = BloomFilter(int(conf.get('bf_capacity', 1024*1024)))
+        self.bf = ScalableBloomFilter(mode=ScalableBloomFilter.SMALL_SET_GROWTH)
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.summary = DedupeSummary()
         self.next_dc_id = int(conf.get('next_dc_id', 0))
         self.container = None
         self.new_container()
         self.container_fp_dir = conf.get('dedupe_container_fp_dir', '/tmp/swift/container_fp/')
+        if config_true_value(conf.get('clean_container_fp', 'false')):
+            if os.path.exists(self.container_fp_dir):
+                shutil.rmtree(self.container_fp_dir)
+        if not os.path.exists(self.container_fp_dir):
+            os.makedirs(self.container_fp_dir)
         self.sqlite_index = config_true_value(conf.get('sqlite_index', 'false'))
         if self.sqlite_index:
             self.index = DatabaseTable(conf)
@@ -108,8 +114,10 @@ class ChunkStore(object):
         data = pickle.dumps(fps)
         if self.direct_io:
             f = os.open(path, os.O_CREAT | os.O_APPEND | os.O_RDWR | os.O_DIRECT)
-            ll = 512 - len(data)%512 # alligned by 512
-            data += '\0'*ll
+            len_data = len(data)
+            if (len_data % 512) != 0:
+                ll = 512 - len_data%512 # alligned by 512
+                data += '\0'*ll
             try:
                 write(f, data)
             except Exception as e:

@@ -13,7 +13,7 @@ def repack_tar(path):
             print 'repackaging file %s' % path
             dir, file = os.path.split(path)
             cmd = ['tar',
-                   '-Jxvf',
+                   '-Jxf',
                    path,
                    '-C',
                    dir]
@@ -24,7 +24,7 @@ def repack_tar(path):
             name = '.'.join(name)
             newpath = os.path.join(dir, name)
             cmd = ['tar',
-                   '-cvf',
+                   '-cf',
                    newpath+'.tar',
                    newpath]
             subprocess.call(cmd)
