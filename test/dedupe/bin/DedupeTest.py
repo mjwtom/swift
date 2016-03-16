@@ -109,7 +109,7 @@ class DeduplicationTest(object):
         return results, files
 
     def download(self, file):
-        cmd =['/home/m/mjwtom/bin/swift',
+        cmd =['/home/mjw/bin/swift',
                   '-A',
                   'http://%s:8080/auth/v1.0' % proxy_ip,
                   '-U',
