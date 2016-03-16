@@ -5,7 +5,6 @@ from swift.dedupe.time import time, time_diff
 import subprocess
 from nodes import proxy_ip
 from test.dedupe.ssh import SSH
-from nodes import file_server, file_server_usr, file_server_port, file_server_pwd
 import pickle
 from random import randint
 
@@ -13,7 +12,6 @@ from random import randint
 class DeduplicationTest(object):
     def __init__(self, log_file):
         self.name = 'deduplication test'
-        self.uploads = []
         if log_file:
             self.log = open(log_file, 'a')
         else:
@@ -34,7 +32,7 @@ class DeduplicationTest(object):
             pass
 
     def upload(self, path):
-        cmd = ['/home/m/mjwtom/bin/swift',
+        cmd = ['/home/mjw/bin/swift',
                '-A',
                'http://%s:8080/auth/v1.0' % proxy_ip,
                '-U',
@@ -44,18 +42,18 @@ class DeduplicationTest(object):
                'upload',
                'mjwtom',
                path]
-        print 'uploading %s' % path
+        print 'uploading %s\n' % path
         start = time()
         ret = subprocess.call(cmd)
         end = time()
         if ret == 0:
-            print 'success upload file'
+            print 'success upload file\n'
         else:
-            print 'fail to upload file'
+            print 'fail to upload file\n'
         time_used = time_diff(start, end)
         size = os.path.getsize(path)
         throughput = size/time_used
-        print 'upload %s, size %d, time %f, throughput %f\n' % (path, size, time_used, throughput)
+        print 'upload %s, size %d, time %f, throughput %f\n\n' % (path, size, time_used, throughput)
         info = dict(
             file = path,
             size = size,
@@ -73,7 +71,7 @@ class DeduplicationTest(object):
                 self.upload(subpath)
         else:
             print 'wrong'
-
+    '''
     def fetch_upload(self, files, tmp_dir):
         upload_info = []
         upload_files = []
@@ -102,6 +100,13 @@ class DeduplicationTest(object):
             else:
                 print 'failed to remove file %s' % local_path
         return upload_info, upload_files
+        '''
+
+    def uploads(self, files):
+        results = []
+        for f in files:
+            results.append(self.upload(f))
+        return results, files
 
     def download(self, file):
         cmd =['/home/m/mjwtom/bin/swift',
@@ -114,18 +119,18 @@ class DeduplicationTest(object):
                   'download',
               'mjwtom',
                   file]
-        print 'downloading file %s' % file
+        print 'downloading file %s\n' % file
         start = time()
         ret = subprocess.call(cmd)
         if ret == 0:
-            print 'successfully download file %s' % file
+            print 'successfully download file %s\n' % file
         else:
-            print 'failed to download file %s' % file
+            print 'failed to download file %s\n' % file
         end = time()
         time_used = time_diff(start, end)
         size = os.path.getsize(file)
         throughput = size/time_used
-        info = 'download %s, size %d, time %f, throughput %f\n' % (file, size, time_used, throughput)
+        info = 'download %s, size %d, time %f, throughput %f\n\n' % (file, size, time_used, throughput)
         print info
         self.info(info)
         info = dict(
@@ -142,9 +147,9 @@ class DeduplicationTest(object):
         print 'removing file %s' % path
         ret = subprocess.call(cmd)
         if ret == 0:
-            print 'successfully remove file %s' % file
+            print 'successfully remove file %s\n\n' % file
         else:
-            print 'failed to remove file %s' % file
+            print 'failed to remove file %s\n\n' % file
         return info
 
     def sequential_download(self, files):

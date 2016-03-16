@@ -3,8 +3,6 @@ from test.dedupe.bin.DedupeTest import DeduplicationTest
 import os
 import pickle
 
-tmp_dir = '/home/m/mjwtom/tmp'
-
 
 def test_upload(pickle_file, result_path, tmp_dir):
     if not os.path.exists(pickle_file):
@@ -18,7 +16,7 @@ def test_upload(pickle_file, result_path, tmp_dir):
 
     test = DeduplicationTest(log_file)
     files = test.get_files(pickle_file)
-    result, uploaded_files = test.fetch_upload(files, tmp_dir)
+    result, uploaded_files = test.uploads(files)
     uploaded_pickle = os.path.join(result_path, 'upload_result.pickle')
     out = open(uploaded_pickle, 'wb')
     pickle.dump(result, out)
@@ -65,19 +63,19 @@ def test_random_download(pickle_file, result_path, tmp_dir):
     out.close()
 
 
-def test_upload_download(pickle_file, result_path, tmp_dir):
+def test_upload_download(pickle_file, result_path):
     if not os.path.exists(pickle_file):
         print 'no pickle  file to read: %s' % pickle_file
     if not os.path.exists(result_path):
         os.makedirs(result_path)
-    if not os.path.exists(tmp_dir):
-        os.makedirs(tmp_dir)
 
     log_file = os.path.join(result_path, 'log.txt')
 
+    print 'start to upload'
     test = DeduplicationTest(log_file)
     files = test.get_files(pickle_file)
-    result, uploaded_files = test.fetch_upload(files, tmp_dir)
+
+    result, uploaded_files = test.uploads(files)
     uploaded_pickle = os.path.join(result_path, 'upload_result.pickle')
     out = open(uploaded_pickle, 'wb')
     pickle.dump(result, out)
@@ -103,4 +101,5 @@ if __name__=='__main__':
         exit()
     pickle_path = sys.argv[1]
     result_path = sys.argv[2]
-    test_upload(pickle_path, result_path, tmp_dir)
+    print 'uploads file in %s, results saves in %s' % (pickle_path, result_path)
+    test_upload_download(pickle_path, result_path)

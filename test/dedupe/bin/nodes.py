@@ -1,5 +1,4 @@
-ips_nbjl = [ '220.113.20.150',
-             '220.113.20.142',
+ips_nbjl = ['220.113.20.142',
            '220.113.20.144',
            '220.113.20.151',
            '220.113.20.120',
@@ -38,17 +37,8 @@ pwd = 'softraid'
 proxy_ip = '220.113.20.30'
 
 
-file_server = '220.113.20.26'
-file_server_usr = 'mjw'
-file_server_port = 22
-file_server_pwd = 'missing'
+client_ip = '220.113.20.26'
+client_usr = 'mjw'
+client_port = 22
+client_pwd = 'missing'
 
-'''
-ips = ips_vm;
-storage_nodes = ips_vm
-file_server = '127.0.0.1'
-file_server_usr = 'mjwtom'
-file_server_port = 22
-file_server_pwd = 'missing1988'
-proxy_ip = '127.0.0.1'
-'''

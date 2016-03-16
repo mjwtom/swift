@@ -6,6 +6,7 @@ from threading import Thread
 import sys
 from test.dedupe.ssh import SSH, run_cmds, uploads, run_cmd, upload
 from nodes import ips, pwd, usr, port
+from nodes import client_ip, client_usr, client_port, client_pwd
 
 
 def install_software(usr='root', ip='127.0.0.1', port=22, pwd=None, softwares=None):
@@ -96,11 +97,15 @@ def thread_reboot(multi_thread=False):
 
 
 def thread_share_code(tasks=None, multi_thread=False):
+    tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift')]
     if multi_thread:
         threads = []
         for ip in ips:
             args = (usr, ip, port, pwd, tasks)
             threads.append(Thread(target=uploads, args=args))
+        tasks = [('/home/mjwtom/swift', '/home/mjw/swift')]
+        args = (client_usr, client_ip, client_port, client_pwd, tasks)
+        threads.append(Thread(target=uploads, args=args))
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -109,6 +114,9 @@ def thread_share_code(tasks=None, multi_thread=False):
         for ip in ips:
             print 'uploading %s' % ip
             uploads(usr, ip, port, pwd, tasks)
+        print 'uploading code to client'
+        tasks = [('/home/mjwtom/swift', '/home/mjw/swift')]
+        uploads(client_usr, client_ip, client_port, client_pwd, tasks)
 
 
 def thread_share_ring(multi_thread=False):
@@ -276,8 +284,6 @@ tasks_before = [('/home/mjwtom/swift', '/home/m/mjwtom/swift'),
          ('/home/mjwtom/setuptools-20.2.1.tar.gz', '/home/m/mjwtom/setuptools-20.2.1.tar.gz'),
          ('/home/mjwtom/pip-8.0.2.tar.gz', '/home/m/mjwtom/pip-8.0.2.tar.gz')]
 
-tasks = [('/home/mjwtom/swift', '/home/m/mjwtom/swift')]
-
 
 
 
@@ -325,7 +331,7 @@ if __name__ == '__main__':
     if 'file' in sys.argv:
         thread_file_system()
     if 'code' in sys.argv:
-        thread_share_code(tasks)
+        thread_share_code(multi_thread=True)
     if 'replace_etc' in sys.argv:
         replace_etc_swift()
     if 'service' in sys.argv:
