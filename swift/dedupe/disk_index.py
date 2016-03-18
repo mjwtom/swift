@@ -93,6 +93,33 @@ class DiskHashTable(object):
         self.bucket_lens[bucket_index].append(len(data))
         self.memory_bucket[bucket_index] = dict()
 
+    def get_disk_buckets(self, index):
+        buckets = []
+        path = self.disk_hash_dir + '/' + str(index)
+        if not os.path.exists(path):
+            return buckets
+        file_size = os.path.getsize(path)
+        if self.direct_io:
+            f = os.open(path, os.O_RDONLY | os.O_DIRECT)
+            try:
+                data = read(f, file_size)
+                for ll in self.bucket_lens[k]:
+                    data = read(f, ll)
+            except Exception as e:
+                print e
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'rb') as f:
+                data = f.read()
+        offset = 0
+        for l in self.bucket_lens[index]:
+            bucket_data = data[offset:offset+l]
+            bucket = pickle.loads(bucket_data)
+            buckets.append(bucket)
+            offset += l
+        return buckets
+
     def get(self, key):
         k = self._map_bucket(key)
         r = self.memory_bucket[k].get(key, None)
@@ -101,34 +128,18 @@ class DiskHashTable(object):
         path = self.disk_hash_dir + '/' + str(k)
         if not os.path.exists(path):
             return None
-        if self.direct_io:
-            f = os.open(path, os.O_RDONLY | os.O_DIRECT)
-            try:
-                for ll in self.bucket_lens[k]:
-                    data = read(f, ll)
-                    data = pickle.loads(data)
-                    r = data.get(key, None)
-                    if r:
-                        return r
-            except Exception as e:
-                pass
-            finally:
-                os.close(f)
-        else:
-            with open(path, 'rb') as f:
-                for ll in self.bucket_lens[k]:
-                    data = f.read(ll)
-                    data = pickle.loads(data)
-                    r = data.get(key, None)
-                    if r:
-                        return r
+        buckets = self.get_disk_buckets(k)
+        for bucket in buckets:
+            r = bucket.get(key)
+            if r:
+                return r
         return None
 
 
 class LazyHashTable(DiskHashTable):
     def __init__(self, conf, callback= None):
         DiskHashTable.__init__(self, conf)
-        self.lazy_bucket_size = int(conf.get('lazy_bucket_size', 16))
+        self.lazy_bucket_size = int(conf.get('lazy_bucket_size', 32))
         self.lazy_bucket = []
         self.callback = callback
         self.buffer = set()
@@ -150,27 +161,10 @@ class LazyHashTable(DiskHashTable):
             result += self._lookup_in_bucket(k, self.memory_bucket[k])
         path = self.disk_hash_dir + '/' + str(k)
         if os.path.exists(path):
-            if self.direct_io:
-                f = os.open(path, os.O_RDONLY | os.O_DIRECT)
-                try:
-                    for ll in self.bucket_lens[k]:
-                        if not self.lazy_bucket[k]:
-                            break
-                        data = read(f, ll)
-                        data = pickle.loads(data)
-                        result += self._lookup_in_bucket(k, data)
-                except Exception as e:
-                    pass
-                finally:
-                    os.close(f)
-            else:
-                with open(path, 'rb') as f:
-                    for ll in self.bucket_lens[k]:
-                        if not self.lazy_bucket[k]:
-                            break
-                        data = f.read(ll)
-                        data = pickle.loads(data)
-                        result += self._lookup_in_bucket(k, data)
+            buckets = self.get_disk_buckets(k)
+            for bucket in buckets:
+                result.extend(self._lookup_in_bucket(k, bucket))
+        # the unfound fingerprints are unique
         for fp, v in self.lazy_bucket[k].items():
             result.append((fp, None, v))
             del self.lazy_bucket[k][fp]

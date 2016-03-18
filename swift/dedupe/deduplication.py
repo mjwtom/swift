@@ -17,6 +17,7 @@ from swift.common.utils import ContextPool
 from copy import copy
 from swift.dedupe.compress import compress, decompress
 import shutil
+from swift.dedupe.time import time, time_diff
 
 
 class ChunkStore(object):
@@ -29,9 +30,9 @@ class ChunkStore(object):
         self.chunk_store_version = conf.get('chunk_store_version', 'v1')
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
-        self.fp_cache = LRU(int(conf.get('cache_size', 65536)))
-        self.pool = LRU(int(conf.get('pool_size', 8)))
-        self.compress_pool = LRU(int(conf.get('compress_pool_size', 64)))
+        self.fp_cache = LRU(int(conf.get('cache_size', 1024*1024*32)))
+        self.pool = LRU(int(conf.get('pool_size', 32)))
+        self.compress_pool = LRU(int(conf.get('compress_pool_size', 256)))
         self.bf = ScalableBloomFilter(mode=ScalableBloomFilter.SMALL_SET_GROWTH)
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.summary = DedupeSummary()
@@ -337,7 +338,10 @@ class ChunkStore(object):
             if r:
                 self.summary.hit_uncompressed += 1
                 return r
+        dedupe_start = time()
         dc_id = self.index.get(fp)
+        dedupe_end = time()
+        self.summary.get_cid_time += time_diff(dedupe_start, dedupe_end)
 
         cdc = self.compress_pool.get(dc_id)
         if cdc:

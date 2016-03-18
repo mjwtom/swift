@@ -5,6 +5,7 @@ according to the fingerprints. Read the corresponding data chunks to construct t
 
 import six.moves.cPickle as pickle
 from swift.dedupe.compress import decompress
+from swift.dedupe.time import time, time_diff
 
 
 class RespBodyIter(object):
@@ -24,6 +25,7 @@ class RespBodyIter(object):
             self.chunk_store.summary.decompression_time += chunk_store.summary.time_diff(dedupe_start, dedupe_end)
         self.file_recipe = pickle.loads(self.file_recipe)
         self.req_environ_path = self.req.environ['PATH_INFO']
+        self.last_time = time()
 
     def __iter__(self):
         return self
@@ -41,9 +43,12 @@ class RespBodyIter(object):
 
             raise StopIteration
         else:
+            now = time()
+            self.chunk_store.summary.iter_req_time += time_diff(self.last_time, now)
             fp = self.file_recipe.pop(0)
-
-        return self.chunk_store.get(fp, self.controller, self.req)
+            data = self.chunk_store.get(fp, self.controller, self.req)
+            self.last_time = time()
+            return data
 
 
     def next(self):
