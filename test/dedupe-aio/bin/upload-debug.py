@@ -3,7 +3,7 @@ import subprocess
 
 cmd = ['python',
        '/home/mjwtom/PycharmProjects/swift/test/dedupe-aio/bin/testcases.py',
-       '/home/mjwtom/kernel.pickle',
+       '/home/mjwtom/data/',
        '/home/mjwtom/result']
 
 subprocess.call(cmd)

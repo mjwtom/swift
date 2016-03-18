@@ -12,12 +12,12 @@ from lru import LRU
 import os
 import six.moves.cPickle as pickle
 from directio import read, write
-from eventlet.queue import Queue
-from swift.common.utils import ContextPool
 from copy import copy
 from swift.dedupe.compress import compress, decompress
 import shutil
 from swift.dedupe.time import time, time_diff
+from eventlet.queue import Queue
+from swift.common.utils import ContextPool
 
 
 class ChunkStore(object):
@@ -63,10 +63,9 @@ class ChunkStore(object):
             self.method = conf.get('compress_method', 'lz4hc')
         self.async_send = config_true_value(conf.get('async_send', 'true'))
         if self.async_send:
-            self.send_queue_len = int(conf.get('send_queue_len', 2))
-            self.send_thread_num = int(conf.get('send_thread_num', 2))
+            self.send_queue_len = int(conf.get('send_queue_len', 1))
             self.send_queue = Queue(self.send_queue_len)
-            self.send_pool = ContextPool(self.send_thread_num + 1) # in case send_thread_num set to 0
+            self.send_pool = ContextPool(1) # only one send thread is enough
             self.send_pool.spawn(self.send_container_thread, self.send_queue)
         if logger is None:
             log_conf = dict()
@@ -186,7 +185,10 @@ class ChunkStore(object):
         queue.taskdone()
 
     def _store_container(self, container):
+        dedupe_start = time()
         data = container.dumps()
+        dedupe_end = time()
+        self.summary.container_pickle_dumps_time += time_diff(dedupe_start, dedupe_end)
         path = '/' + self.chunk_store_version
         path += '/' + self.chunk_store_account
         path += '/' + self.chunk_sore_container
@@ -195,10 +197,10 @@ class ChunkStore(object):
             CONTENT_LENGTH = str(len(data))
         )
         if self.compress:
-            dedupe_start = self.summary.time()
+            dedupe_start = time()
             data = compress(data, self.method)
-            dedupe_end = self.summary.time()
-            self.summary.compression_time += self.summary.time_diff(dedupe_start, dedupe_end)
+            dedupe_end = time()
+            self.summary.compression_time += time_diff(dedupe_start, dedupe_end)
         ll = len(data)
         data = WsgiBytesIO(data)
         environ = make_env(environ, method='PUT', path = path)
@@ -346,12 +348,15 @@ class ChunkStore(object):
         cdc = self.compress_pool.get(dc_id)
         if cdc:
             self.summary.hit_compressed += 1
-            dedupe_start = self.summary.time()
+            dedupe_start = time()
             data = decompress(cdc, self.method)
-            dedupe_end = self.summary.time()
-            self.summary.decompression_time += self.summary.time_diff(dedupe_start, dedupe_end)
+            dedupe_end = time()
+            self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
             dc_container = DedupeContainer(dc_id)
+            dedupe_start = time()
             dc_container.loads(data)
+            dedupe_end = time()
+            self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
             self.pool[dc_id] = dc_container
             return dc_container.get(fp)
 
@@ -375,7 +380,10 @@ class ChunkStore(object):
             self.summary.decompression_time += self.summary.time_diff(dedupe_start, dedupe_end)
         del resp
         dc_container = DedupeContainer(dc_id)
+        dedupe_start = time()
         dc_container.loads(data)
+        dedupe_end = time()
+        self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
 
         self._add2cache(self.pool, dc_id, dc_container)
 
