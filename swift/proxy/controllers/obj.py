@@ -77,7 +77,7 @@ from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
 #mjw dedupe
 from swift.dedupe.chunk import ChunkIterC as ChunkIter
 from swift.common.storage_policy import DEDUPE_POLICY
-from swift.dedupe.dedupe_resp import RespBodyIter
+from swift.dedupe.dedupe_resp import RespBodyIter, segment
 import six.moves.cPickle as pickle
 from swift.common.swob import WsgiBytesIO
 
@@ -2880,7 +2880,7 @@ class DeduplicationObjectController(BaseObjectController):
 
         r = RespBodyIter(self.app.chunk_store, req, self)
         resp = r.resp
-        resp.app_iter = r.iter_chunk()
+        resp.app_iter = segment(r)#r.iter_chunk()
         resp.headers['Etag'] = self.app.info_database.lookup_etag(self.object_name).strip()
         self._fix_response(resp)
 

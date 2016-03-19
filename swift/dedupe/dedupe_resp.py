@@ -97,3 +97,17 @@ class RespBodyIter(object):
         self.chunk_store.log_message([self.controller.object_name])
         self.chunk_store.log_message(info)
         return
+
+
+def segment(chunk_iter, size=16):
+    seg = []
+    for chunk in chunk_iter.iter_chunk():
+        seg.append(chunk)
+        if len(seg) >= size:
+            data = ''.join(seg)
+            seg = []
+            yield data
+    data = ''.join(seg)
+    yield data
+    return
+

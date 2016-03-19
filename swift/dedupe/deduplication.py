@@ -16,8 +16,11 @@ from copy import copy
 from swift.dedupe.compress import compress, decompress
 import shutil
 from swift.dedupe.time import time, time_diff
-from eventlet.queue import Queue
-from swift.common.utils import ContextPool
+# TODO: change this back to greenpool, but now, I have no time to do this, so I use threading
+#from eventlet.queue import Queue
+#from swift.common.utils import ContextPool
+from threading import Thread
+import Queue
 
 
 class ChunkStore(object):
@@ -63,10 +66,11 @@ class ChunkStore(object):
             self.method = conf.get('compress_method', 'lz4hc')
         self.async_send = config_true_value(conf.get('async_send', 'true'))
         if self.async_send:
-            self.send_queue_len = int(conf.get('send_queue_len', 10))
-            self.send_queue = Queue(self.send_queue_len)
-            self.send_pool = ContextPool(1) # only one send thread is enough
-            self.send_pool.spawn(self.send_container_thread, self.send_queue)
+            self.send_queue_len = int(conf.get('send_queue_len', 1))
+            self.send_queue = Queue.Queue(self.send_queue_len)
+            self.sender = Thread(target=self.send_container_thread, args=(self.send_queue,))#self.send_pool = ContextPool(1) # only one send thread is enough
+            self.sender.start()
+            #self.send_pool.spawn(self.send_container_thread, self.send_queue)
         if logger is None:
             log_conf = dict()
             for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
