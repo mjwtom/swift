@@ -26,8 +26,14 @@ def start_all(muti_thread=False):
             run_cmds(usr, ip, port, pwd, cmds)
     print 'starting %s on %s' % ('proxy-server', '127.0.0.1')
     cmds = ['sudo -k service memcached restart',
-            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server ' \
+            '/home/mjwtom/bin/python /home/mjwtom/swift/bin/swift-proxy-server '\
           '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
+    '''
+    cmds = ['sudo -k service memcached restart',
+            '/home/mjwtom/bin/python '
+            '/home/mjwtom/swift/test/dedupe/bin/profile_proxy.py '\
+          '/home/mjwtom/swift/test/dedupe/swift/proxy-server.conf']
+    '''
     if muti_thread:
         args = ('mjwtom', '127.0.0.1', 22, 'missing1988', cmds)
         servers['proxy-server'].append(Thread(target=run_cmds, args=args))

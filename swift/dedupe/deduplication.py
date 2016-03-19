@@ -63,7 +63,7 @@ class ChunkStore(object):
             self.method = conf.get('compress_method', 'lz4hc')
         self.async_send = config_true_value(conf.get('async_send', 'true'))
         if self.async_send:
-            self.send_queue_len = int(conf.get('send_queue_len', 1))
+            self.send_queue_len = int(conf.get('send_queue_len', 10))
             self.send_queue = Queue(self.send_queue_len)
             self.send_pool = ContextPool(1) # only one send thread is enough
             self.send_pool.spawn(self.send_container_thread, self.send_queue)

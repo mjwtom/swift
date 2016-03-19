@@ -20,7 +20,8 @@ class DedupeSummary(object):
         self.hit_uncompressed = 0
         self.hit_compressed = 0
         self.get = 0
-        self.iter_req_time = 0
+        self.get_chunk_time = 0
+        self.get_recipe_time = 0
         self.get_cid_time = 0
         self.container_pickle_dumps_time = 0
         self.container_pickle_loads_time = 0
@@ -51,7 +52,8 @@ class DedupeSummary(object):
                 'get num: %d' % self.get,
                 'hit uncompressed num: %d' % self.hit_uncompressed,
                 'hit compressed num: %d' % self.hit_compressed,
-                'chunk iter request time: %f' % self.iter_req_time,
+                'get chunk time: %f' % self.get_chunk_time,
+                'get recipe time: %f' % self.get_recipe_time,
                 'get chunk container id time: %f' % self.get_cid_time,
                 'container pickle dumps time: %f' % self.container_pickle_dumps_time,
                 'container pickle loads time: %f' % self.container_pickle_loads_time,

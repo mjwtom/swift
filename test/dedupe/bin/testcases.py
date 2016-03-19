@@ -2,6 +2,7 @@ import sys
 from test.dedupe.bin.DedupeTest import DeduplicationTest
 import os
 import pickle
+from time import sleep
 
 
 def test_upload(pickle_file, result_path, tmp_dir):
@@ -81,12 +82,16 @@ def test_upload_download(pickle_file, result_path):
     pickle.dump(result, out)
     out.close()
 
+    sleep(60)
+
     uploaded_files = [file[1:] for file in uploaded_files]
     result, download_files = test.sequential_download(uploaded_files)
     seq_download_pickle = os.path.join(result_path, 'seq_download_result.pickle')
     out = open(seq_download_pickle, 'wb')
     pickle.dump(result, out)
     out.close()
+
+    sleep(60)
 
     rnd_download_pickle = os.path.join(result_path, 'rnd_download_result.pickle')
     result, download_files = test.random_download(uploaded_files)

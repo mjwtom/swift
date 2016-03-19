@@ -2878,9 +2878,9 @@ class DeduplicationObjectController(BaseObjectController):
             if aresp:
                 return aresp
 
-        app_iter = RespBodyIter(self.app.chunk_store, req, self)
-        resp = app_iter.get_resp()
-        resp.app_iter = app_iter
+        r = RespBodyIter(self.app.chunk_store, req, self)
+        resp = r.resp
+        resp.app_iter = r.iter_chunk()
         resp.headers['Etag'] = self.app.info_database.lookup_etag(self.object_name).strip()
         self._fix_response(resp)
 
