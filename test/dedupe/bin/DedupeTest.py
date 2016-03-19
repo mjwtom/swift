@@ -44,12 +44,15 @@ class DeduplicationTest(object):
                path]
         print 'uploading %s\n' % path
         start = time()
-        ret = subprocess.call(cmd)
+        try:
+            ret = subprocess.call(cmd)
+            if ret == 0:
+                print 'success upload file\n'
+            else:
+                print 'fail to upload file\n'
+        except Exception as e:
+            print e
         end = time()
-        if ret == 0:
-            print 'success upload file\n'
-        else:
-            print 'fail to upload file\n'
         time_used = time_diff(start, end)
         size = os.path.getsize(path)
         throughput = size/time_used
@@ -121,11 +124,14 @@ class DeduplicationTest(object):
                   file]
         print 'downloading file %s\n' % file
         start = time()
-        ret = subprocess.call(cmd)
-        if ret == 0:
-            print 'successfully download file %s\n' % file
-        else:
-            print 'failed to download file %s\n' % file
+        try:
+            ret = subprocess.call(cmd)
+            if ret == 0:
+                print 'successfully download file %s\n' % file
+            else:
+                print 'failed to download file %s\n' % file
+        except Exception as e:
+            print e
         end = time()
         time_used = time_diff(start, end)
         size = os.path.getsize(file)

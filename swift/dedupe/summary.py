@@ -24,6 +24,7 @@ class DedupeSummary(object):
         self.get_cid_time = 0
         self.container_pickle_dumps_time = 0
         self.container_pickle_loads_time = 0
+        self.write_cache_hit = 0
 
     def time(self):
         return datetime.now()
@@ -53,7 +54,8 @@ class DedupeSummary(object):
                 'chunk iter request time: %f' % self.iter_req_time,
                 'get chunk container id time: %f' % self.get_cid_time,
                 'container pickle dumps time: %f' % self.container_pickle_dumps_time,
-                'container pickle loads time: %f' % self.container_pickle_loads_time]
+                'container pickle loads time: %f' % self.container_pickle_loads_time,
+                'write cache hit time: %d' % self.write_cache_hit]
         return info
 
     def get_penalty(self, container, compress = None):

@@ -6,5 +6,5 @@ def time():
 
 
 def time_diff(start, end):
-    diff = end -start
+    diff = end - start
     return diff.total_seconds()

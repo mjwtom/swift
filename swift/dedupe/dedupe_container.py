@@ -38,5 +38,10 @@ class DedupeContainer(object):
         self.kv = pickle.loads(data)
         self.size = len(self.kv)
 
+    def get_fps_dict(self):
+        fps_dict = {k:self.id for k in self.kv.keys()}
+        return fps_dict
+
     def get_fps(self):
-        return list(self.kv.keys())
+        fps = list(self.kv.keys())
+        return fps

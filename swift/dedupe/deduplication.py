@@ -31,8 +31,8 @@ class ChunkStore(object):
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
         self.fp_cache = LRU(int(conf.get('cache_size', 1024*1024*32)))
-        self.pool = LRU(int(conf.get('pool_size', 32)))
-        self.compress_pool = LRU(int(conf.get('compress_pool_size', 256)))
+        self.chunk_pool = LRU(int(conf.get('chunk_pool_size', 1024*256)))
+        self.container_pool = LRU(int(conf.get('compress_pool_size', 256)))
         self.bf = ScalableBloomFilter(mode=ScalableBloomFilter.SMALL_SET_GROWTH)
         self.dc_size = int(conf.get('dedupe_container_size', 4096))
         self.summary = DedupeSummary()
@@ -277,6 +277,7 @@ class ChunkStore(object):
                 for cluster in clusters:
                     for fp, chunk in cluster.items():
                         if self._get_from_cache(self.fp_cache, fp):
+                            self.summary.write_cache_hit += 1 #for summary
                             self.summary.dupe_size += len(chunk) # for summary
                             self.summary.dupe_chunk += 1 # for summary
                             self.index.buf_remove(fp)
@@ -297,6 +298,7 @@ class ChunkStore(object):
         dedupe_start = self.summary.time()
         if fp in self.bf:
             if self._get_from_cache(self.fp_cache, fp):
+                self.summary.write_cache_hit += 1 # for summary
                 self.summary.dupe_size += len(chunk) # for summary
                 self.summary.dupe_chunk += 1 # for summary
                 dedupe_end = self.summary.time()
@@ -331,21 +333,24 @@ class ChunkStore(object):
     def _sqlite_get(self, fp):
         return self._eager_get(fp)
 
+    def add_to_chunk_pool(self, container):
+        for fp, chunk in container.kv.items():
+            self.chunk_pool[fp] = chunk
+
     def _eager_get(self, fp):
         r = self.container.get(fp)
         if r:
             return r
-        for dc_id, dc in self.pool.items():
-            r = dc.get(fp)
-            if r:
-                self.summary.hit_uncompressed += 1
-                return r
+        r = self.chunk_pool.get(fp)
+        if r:
+            self.summary.hit_uncompressed += 1
+            return r
         dedupe_start = time()
         dc_id = self.index.get(fp)
         dedupe_end = time()
         self.summary.get_cid_time += time_diff(dedupe_start, dedupe_end)
 
-        cdc = self.compress_pool.get(dc_id)
+        cdc = self.container_pool.get(dc_id)
         if cdc:
             self.summary.hit_compressed += 1
             dedupe_start = time()
@@ -357,8 +362,12 @@ class ChunkStore(object):
             dc_container.loads(data)
             dedupe_end = time()
             self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
-            self.pool[dc_id] = dc_container
-            return dc_container.get(fp)
+            self.add_to_chunk_pool(dc_container)
+            r = self.chunk_pool.get(fp)
+            if r:
+                return r
+            else:
+                return dc_container.get(fp)
 
 
         req = self._dupl_req(self.req, dc_id, None, 0)
@@ -372,7 +381,7 @@ class ChunkStore(object):
         for d in iter(resp.app_iter):
             data += d
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
-            self.compress_pool[dc_id] = data
+            self.container_pool[dc_id] = data
             self.method = resp.headers.get('X-Object-Sysmeta-CompressionMethod')
             dedupe_start = self.summary.time()
             data = decompress(data, self.method)
@@ -384,10 +393,12 @@ class ChunkStore(object):
         dc_container.loads(data)
         dedupe_end = time()
         self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
-
-        self._add2cache(self.pool, dc_id, dc_container)
-
-        return dc_container.get(fp)
+        self.add_to_chunk_pool(dc_container)
+        r = self.chunk_pool.get(fp)
+        if r:
+            return r
+        else:
+            return dc_container.get(fp)
 
     def _lazy_get(self, fp):
         #check if the chunk in the buffer area
