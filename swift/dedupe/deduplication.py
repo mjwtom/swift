@@ -256,6 +256,7 @@ class ChunkStore(object):
         if self._get_from_cache(self.fp_cache, fp):
             self.summary.dupe_size += len(chunk) # for summary
             self.summary.dupe_chunk += 1 # for summary
+            self.summary.pre_cache_hit += 1
             dedupe_end = time()
             self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
             return

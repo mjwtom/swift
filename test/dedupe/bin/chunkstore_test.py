@@ -54,6 +54,7 @@ def show_stat(chunk_store):
     chunk_store.summary.read_disk_time = chunk_store.index.read_disk_time
     chunk_store.summary.write_disk_num = chunk_store.index.write_disk_num
     chunk_store.summary.write_disk_time = chunk_store.index.write_disk_time
+    chunk_store.summary.disk_hit = chunk_store.index.hit_num
     info = chunk_store.summary.get_info()
     for entry in info:
         print entry
