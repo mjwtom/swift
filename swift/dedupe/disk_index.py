@@ -47,7 +47,7 @@ class DiskHashTable(object):
         self.index_size = int(conf.get('disk_hash_table_index_size', 1024))
         self.direct_io = config_true_value(conf.get('disk_hash_table_directio', 'false'))
         self.disk_hash_dir = conf.get('disk_hash_table_dir', '/tmp/swift/disk-hash/')
-        self.flus_size = int(conf.get('disk_hash_table_flush_size', 1024))
+        self.flush_size = int(conf.get('disk_hash_table_flush_size', 1024))
         self.memory_bucket = []
         self.bucket_lens = []
         for _ in range(self.index_size):
@@ -62,15 +62,15 @@ class DiskHashTable(object):
     def _map_bucket(self, key):
         h = md5(key)
         h = h.hexdigest()
-        k = int(h.upper(), 16)
-        k %= self.index_size
-        return k
+        index = int(h.upper(), 16)
+        index %= self.index_size
+        return index
 
     def put(self, key, value):
-        k = self._map_bucket(key)
-        self.memory_bucket[k][key] = value
-        if len(self.memory_bucket[k]) >= self.flus_size:
-            self.flush(k)
+        index = self._map_bucket(key)
+        self.memory_bucket[index][key] = value
+        if len(self.memory_bucket[index]) >= self.flush_size:
+            self.flush(index)
 
     def flush(self, bucket_index):
         if not os.path.exists(self.disk_hash_dir):
@@ -103,7 +103,7 @@ class DiskHashTable(object):
             f = os.open(path, os.O_RDONLY | os.O_DIRECT)
             try:
                 data = read(f, file_size)
-                for ll in self.bucket_lens[k]:
+                for ll in self.bucket_lens[index]:
                     data = read(f, ll)
             except Exception as e:
                 print e
@@ -121,14 +121,14 @@ class DiskHashTable(object):
         return buckets
 
     def get(self, key):
-        k = self._map_bucket(key)
-        r = self.memory_bucket[k].get(key, None)
+        index = self._map_bucket(key)
+        r = self.memory_bucket[index].get(key, None)
         if r:
             return r
-        path = self.disk_hash_dir + '/' + str(k)
+        path = self.disk_hash_dir + '/' + str(index)
         if not os.path.exists(path):
             return None
-        buckets = self.get_disk_buckets(k)
+        buckets = self.get_disk_buckets(index)
         for bucket in buckets:
             r = bucket.get(key)
             if r:
@@ -146,46 +146,46 @@ class LazyHashTable(DiskHashTable):
         for _ in range(self.index_size):
             self.lazy_bucket.append(dict())
 
-    def _lookup_in_bucket(self, k, bucket):
+    def _lookup_in_bucket(self, index, bucket):
         result = []
-        for fp, v in self.lazy_bucket[k].items():
+        for fp, v in self.lazy_bucket[index].items():
             r = bucket.get(fp, None)
             if r:
                 result.append((fp, r, v))
-                del self.lazy_bucket[k][fp]
+                del self.lazy_bucket[index][fp]
         return result
 
-    def lazy_lookup(self, k):
+    def lazy_lookup(self, index):
         result = []
-        if self.lazy_bucket[k]:
-            result += self._lookup_in_bucket(k, self.memory_bucket[k])
-        path = self.disk_hash_dir + '/' + str(k)
+        if self.lazy_bucket[index]:
+            result += self._lookup_in_bucket(index, self.memory_bucket[index])
+        path = self.disk_hash_dir + '/' + str(index)
         if os.path.exists(path):
-            buckets = self.get_disk_buckets(k)
+            buckets = self.get_disk_buckets(index)
             for bucket in buckets:
-                result.extend(self._lookup_in_bucket(k, bucket))
+                result.extend(self._lookup_in_bucket(index, bucket))
         # the unfound fingerprints are unique
-        for fp, v in self.lazy_bucket[k].items():
+        for fp, v in self.lazy_bucket[index].items():
             result.append((fp, None, v))
-            del self.lazy_bucket[k][fp]
+            del self.lazy_bucket[index][fp]
         return result
 
     def buf(self, fp, value):
-        k = self._map_bucket(fp)
-        if fp not in self.lazy_bucket[k]:
-            self.lazy_bucket[k][fp] = [value]
+        index = self._map_bucket(fp)
+        if fp not in self.lazy_bucket[index]:
+            self.lazy_bucket[index][fp] = [value]
         else:
-            if value not in self.lazy_bucket[k][fp]:
-                self.lazy_bucket[k][fp].append(value)
-        if len(self.lazy_bucket[k]) >= self.lazy_bucket_size:
-            result = self.lazy_lookup(k)
+            if value not in self.lazy_bucket[index][fp]:
+                self.lazy_bucket[index][fp].append(value)
+        if len(self.lazy_bucket[index]) >= self.lazy_bucket_size:
+            result = self.lazy_lookup(index)
             self.callback(result)
 
     def buf_remove(self, fp):
-        k = self._map_bucket(fp)
-        if fp in self.lazy_bucket[k]:
-            del self.lazy_bucket[k][fp]
+        index = self._map_bucket(fp)
+        if fp in self.lazy_bucket[index]:
+            del self.lazy_bucket[index][fp]
 
     def buf_get(self, fp):
-        k = self._map_bucket(fp)
-        return self.lazy_bucket[k].get(fp)
+        index = self._map_bucket(fp)
+        return self.lazy_bucket[index].get(fp)

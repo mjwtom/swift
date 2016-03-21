@@ -49,7 +49,7 @@ def get_finger(pickle_path, finger_path):
     finger_file.close()
 
 
-if True: #if __name__ == '__main__':
+if __name__ == '__main__':
     if len(sys.argv) < 3:
         print 'please give the pickle file and fingerprint file'
         exit()
