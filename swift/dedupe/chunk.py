@@ -124,7 +124,8 @@ class ChunkIterC(object):
     This class is to chunk the data string in to chunks based on cdc chunking method
     '''
 
-    def __init__(self, data_src, fixed_size= False, target=4096, win_size=48, min=512, max=16 * 1024, MAGIC=13, max_buf_size = 1024*1024*8):
+    def __init__(self, data_src, fixed_size= False, target=4096,
+                 win_size=48, min=512, max=64*1024, MAGIC=13, max_buf_size=1024*1024*8):
         '''
         TO chunk the data according the the rabin fingerprint
         '''

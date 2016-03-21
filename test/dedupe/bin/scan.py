@@ -32,7 +32,6 @@ def scan_size(path, pickle_file, min_size = 0):
     return result
 
 
-
 if __name__ == '__main__':
     if len(sys.argv) < 4:
         print 'not enough paramaters'

@@ -158,18 +158,23 @@ class DeduplicationTest(object):
             print 'failed to remove file %s\n\n' % file
         return info
 
-    def sequential_download(self, files):
+    def sequential_download(self, files, num=0):
         download_files = []
         download_info = []
+        current_num = 0
         for file in files:
             download_info.append(self.download(file))
             download_files.append(file)
+            current_num += 1
+            if (num>=0) and (current_num>=num):
+                break
         return download_info, download_files
 
-    def random_download(self, files):
+    def random_download(self, files, num=0):
         download_files = []
         download_info = []
         rnd_files = files[:]
+        current_num = 0
         l = len(rnd_files)
         while l > 0:
             index = randint(0, l-1)
@@ -177,6 +182,9 @@ class DeduplicationTest(object):
             download_info.append(self.download(file))
             download_files.append(file)
             l = len(rnd_files)
+            current_num += 1
+            if (num>=0) and (current_num>=num):
+                break
         return download_info, download_files
 
     def scan_dir(self, path, pickle_file, min_size=0):

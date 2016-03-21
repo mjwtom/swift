@@ -62,6 +62,13 @@ port for it.
 The deduplication engine records the deduplciation information into the log.
 For every container it record all the information once. It is configurable.
 
+It is good to use the rsyslog to record the information. I also make my own log
+for the debug or profile information.
+
+## Profiling
+I tried to use cProfile. But I found the xprofile middleware seems work find. I
+like the mini web it provides.
+
 
 ## Bugs I made (please check here if you find your system does not work)
 Remember to start the memcached server before start the cluster.

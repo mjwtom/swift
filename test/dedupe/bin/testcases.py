@@ -85,7 +85,7 @@ def test_upload_download(pickle_file, result_path):
     sleep(60)
 
     uploaded_files = [file[1:] for file in uploaded_files]
-    result, download_files = test.sequential_download(uploaded_files)
+    result, download_files = test.sequential_download(uploaded_files, 30)
     seq_download_pickle = os.path.join(result_path, 'seq_download_result.pickle')
     out = open(seq_download_pickle, 'wb')
     pickle.dump(result, out)
@@ -94,7 +94,7 @@ def test_upload_download(pickle_file, result_path):
     sleep(60)
 
     rnd_download_pickle = os.path.join(result_path, 'rnd_download_result.pickle')
-    result, download_files = test.random_download(uploaded_files)
+    result, download_files = test.random_download(uploaded_files, 30)
     out = open(rnd_download_pickle, 'wb')
     pickle.dump(result, out)
     out.close()
