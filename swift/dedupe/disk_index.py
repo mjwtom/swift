@@ -5,6 +5,7 @@ import shutil
 from hashlib import md5
 from swift.common.utils import config_true_value
 import sqlite3
+from swift.dedupe.time import time, time_diff
 
 
 class DatabaseTable(object):
@@ -58,6 +59,11 @@ class DiskHashTable(object):
                 shutil.rmtree(self.disk_hash_dir)
         if not os.path.exists(self.disk_hash_dir):
             os.makedirs(self.disk_hash_dir)
+        self.read_disk_num = 0
+        self.read_disk_time = 0
+        self.write_disk_num = 0
+        self.write_disk_time = 0
+        self.hit_num = 0
 
     def _map_bucket(self, key):
         h = md5(key)
@@ -73,6 +79,7 @@ class DiskHashTable(object):
             self.flush(index)
 
     def flush(self, bucket_index):
+        dedupe_start = time()
         if not os.path.exists(self.disk_hash_dir):
             os.makedirs(self.disk_hash_dir)
         path = self.disk_hash_dir + '/' + str(bucket_index)
@@ -92,19 +99,22 @@ class DiskHashTable(object):
                 f.write(data)
         self.bucket_lens[bucket_index].append(len(data))
         self.memory_bucket[bucket_index] = dict()
+        dedupe_end = time()
+        self.write_disk_num += 1
+        self.write_disk_time += time_diff(dedupe_start, dedupe_end)
 
     def get_disk_buckets(self, index):
+        dedupe_start = time()
         buckets = []
         path = self.disk_hash_dir + '/' + str(index)
         if not os.path.exists(path):
             return buckets
         file_size = os.path.getsize(path)
+        data = ''
         if self.direct_io:
             f = os.open(path, os.O_RDONLY | os.O_DIRECT)
             try:
                 data = read(f, file_size)
-                for ll in self.bucket_lens[index]:
-                    data = read(f, ll)
             except Exception as e:
                 print e
             finally:
@@ -112,18 +122,24 @@ class DiskHashTable(object):
         else:
             with open(path, 'rb') as f:
                 data = f.read()
+        if not data:
+            print 'read data failed'
         offset = 0
         for l in self.bucket_lens[index]:
             bucket_data = data[offset:offset+l]
             bucket = pickle.loads(bucket_data)
             buckets.append(bucket)
             offset += l
+        dedupe_end = time()
+        self.read_disk_num += 1
+        self.read_disk_time += time_diff(dedupe_start, dedupe_end)
         return buckets
 
     def get(self, key):
         index = self._map_bucket(key)
         r = self.memory_bucket[index].get(key, None)
         if r:
+            self.hit_num += 1
             return r
         path = self.disk_hash_dir + '/' + str(index)
         if not os.path.exists(path):
@@ -132,6 +148,7 @@ class DiskHashTable(object):
         for bucket in buckets:
             r = bucket.get(key)
             if r:
+                self.hit_num += 1
                 return r
         return None
 
@@ -151,6 +168,7 @@ class LazyHashTable(DiskHashTable):
         for fp, v in self.lazy_bucket[index].items():
             r = bucket.get(fp, None)
             if r:
+                self.hit_num += 1
                 result.append((fp, r, v))
                 del self.lazy_bucket[index][fp]
         return result

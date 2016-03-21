@@ -25,14 +25,14 @@ class DedupeSummary(object):
         self.get_cid_time = 0
         self.container_pickle_dumps_time = 0
         self.container_pickle_loads_time = 0
-        self.write_cache_hit = 0
-
-    def time(self):
-        return datetime.now()
-
-    def time_diff(self, start, end):
-        diff = end -start
-        return diff.total_seconds()
+        self.pre_cache_hit = 0
+        self.post_cache_hit = 0
+        self.disk_hit = 0
+        self.read_disk_num = 0
+        self.read_disk_time = 0
+        self.write_disk_num = 0
+        self.write_disk_time = 0
+        self.lazy_calback_time = 0
 
     def get_info(self):
         self.total_download_chunk = self.get
@@ -57,9 +57,17 @@ class DedupeSummary(object):
                 'get chunk container id time: %f' % self.get_cid_time,
                 'container pickle dumps time: %f' % self.container_pickle_dumps_time,
                 'container pickle loads time: %f' % self.container_pickle_loads_time,
-                'write cache hit time: %d' % self.write_cache_hit]
+                'pre cache hit num: %d' % self.pre_cache_hit,
+                'post cache hit num: %d' % self.post_cache_hit,
+                'disk hit num: %d' % self.disk_hit,
+                'write disk num: %d' % self.write_disk_num,
+                'write disk time: %f' % self.write_disk_time,
+                'read disk num: %d' % self.read_disk_num,
+                'read disk time: %f' % self.read_disk_time,
+                'lazy callback time: %f' % self.lazy_calback_time]
         return info
 
+    '''
     def get_penalty(self, container, compress = None):
         mem_size = sys.getsizeof(container.kv)
         orig_data = ''
@@ -87,3 +95,4 @@ class DedupeSummary(object):
         for k, v in info.items():
             text.append('%s: %d' % (k, v))
         return text
+    '''

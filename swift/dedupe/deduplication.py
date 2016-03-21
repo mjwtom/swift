@@ -235,18 +235,18 @@ class ChunkStore(object):
             full_container = self.container
             self.new_container()
             self._store_container_fp(full_container)
-            dedupe_start = self.summary.time()
+            dedupe_start = time()
             if self.async_send:
                 self.send_queue.put(full_container)
             else:
                 self._store_container(full_container)
-            dedupe_end = self.summary.time()
-            self.summary.store_time += self.summary.time_diff(dedupe_start, dedupe_end)
+            dedupe_end = time()
+            self.summary.store_time += time_diff(dedupe_start, dedupe_end)
         return container_id
 
     def _lazy_dedupe(self, fp, chunk):
-        dedupe_start = self.summary.time()
-        if not fp in self.bf:
+        dedupe_start = time()
+        if fp not in self.bf:
             self.bf.add(fp)
             container_id = self.store(fp, chunk)
             self.index.put(fp, container_id)
@@ -256,20 +256,19 @@ class ChunkStore(object):
         if self._get_from_cache(self.fp_cache, fp):
             self.summary.dupe_size += len(chunk) # for summary
             self.summary.dupe_chunk += 1 # for summary
-            dedupe_end = self.summary.time()
-            time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
-            self.summary.fp_lookup_time += time_diff
+            dedupe_end = time()
+            self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
             return
         if self.current_continue_dup >= self.lazy_max_fetch:
             self.dup_cluster = dict()
             self.current_continue_dup = 0
         self.dup_cluster[fp] = chunk
         self.index.buf(fp, self.dup_cluster)
-        dedupe_end = self.summary.time()
-        time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
-        self.summary.fp_lookup_time += time_diff
+        dedupe_end = time()
+        self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
 
     def lazy_callback(self, result):
+        callback_start = time()
         load_container_set = set()
         for fp, container_id, clusters in result:
             # if a fingperint is duplicate, container_id not none
@@ -281,7 +280,7 @@ class ChunkStore(object):
                 for cluster in clusters:
                     for fp, chunk in cluster.items():
                         if self._get_from_cache(self.fp_cache, fp):
-                            self.summary.write_cache_hit += 1 #for summary
+                            self.summary.post_cache_hit += 1 #for summary
                             self.summary.dupe_size += len(chunk) # for summary
                             self.summary.dupe_chunk += 1 # for summary
                             self.index.buf_remove(fp)
@@ -293,34 +292,39 @@ class ChunkStore(object):
                     chunk = cluster.get(fp) # find the chunk
                     if chunk:
                         break
+                dedupe_start = time()
                 container_id = self.store(fp, chunk)
                 self.index.put(fp, container_id)
+                dedupe_end = time()
+                self.summary.fp_lookup_time -= time_diff(dedupe_start, dedupe_end)
                 for cluster in clusters:
                     del cluster[fp]
+        callable_end = time()
+        self.summary.lazy_calback_time += time_diff(callback_start, callable_end)
 
     def _eager_dedupe(self, fp, chunk):
-        dedupe_start = self.summary.time()
-        if fp in self.bf:
-            if self._get_from_cache(self.fp_cache, fp):
-                self.summary.write_cache_hit += 1 # for summary
-                self.summary.dupe_size += len(chunk) # for summary
-                self.summary.dupe_chunk += 1 # for summary
-                dedupe_end = self.summary.time()
-                time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
-                self.summary.fp_lookup_time += time_diff
-                return
-            container_id = self.index.get(fp)
-            if container_id:
-                self.summary.dupe_size += len(chunk) # for summary
-                self.summary.dupe_chunk += 1 # for summary
-                dedupe_end = self.summary.time()
-                time_diff = self.summary.time_diff(dedupe_start, dedupe_end)
-                self.summary.fp_lookup_time += time_diff
-                self._fill_cache_with_container_fp(container_id)
-                return
-        self.bf.add(fp)
-        container_id = self.store(fp, chunk)
-        self.index.put(fp, container_id)
+        dedupe_start = time()
+        if fp not in self.bf:
+            self.bf.add(fp)
+            container_id = self.store(fp, chunk)
+            self.index.put(fp, container_id)
+            return
+
+        if self._get_from_cache(self.fp_cache, fp):
+            self.summary.pre_cache_hit += 1 # for summary
+            self.summary.dupe_size += len(chunk) # for summary
+            self.summary.dupe_chunk += 1 # for summary
+            dedupe_end = time()
+            self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
+            return
+        container_id = self.index.get(fp)
+        if container_id:
+            self.summary.dupe_size += len(chunk) # for summary
+            self.summary.dupe_chunk += 1 # for summary
+            dedupe_end = time()
+            self._fill_cache_with_container_fp(container_id)
+            self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
+            return
 
     def put(self, fp, chunk, obj_controller, req):
         self.summary.total_size += len(chunk) # for summary

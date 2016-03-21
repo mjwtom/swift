@@ -3,10 +3,11 @@ from swift.dedupe.deduplication import ChunkStore
 from swift.common.utils import parse_options
 from swift.common.wsgi import appconfig, ConfigFileError
 from time import sleep
+from swift.dedupe.time import time, time_diff
 
 
 # To simulate the store and read process
-store_container_time = 0.001
+store_container_time = 0.000001
 
 
 class TestStore(ChunkStore):
@@ -48,14 +49,34 @@ def get_str(length=8, random=False):
         pass
 
 
+def show_stat(chunk_store):
+    chunk_store.summary.read_disk_num = chunk_store.index.read_disk_num
+    chunk_store.summary.read_disk_time = chunk_store.index.read_disk_time
+    chunk_store.summary.write_disk_num = chunk_store.index.write_disk_num
+    chunk_store.summary.write_disk_time = chunk_store.index.write_disk_time
+    info = chunk_store.summary.get_info()
+    for entry in info:
+        print entry
+    chunk_store.log_message(info)
+
+
 def test_put(chunk_store, finger_path):
     if not os.path.exists(finger_path):
         print 'no fingerprint file'
         return
     with open(finger_path, 'r') as fp_in:
+        file_size = 0
+        start_time = time()
         for line in fp_in:
             if line.startswith('/home/'):
                 print 'file %s' % line
+                show_stat(chunk_store)
+                end_time = time()
+                time_gap = time_diff(start_time, end_time)
+                if time_gap > 0.0:
+                    print ('throughput %f MB/s', file_size*1.0/1024/1024/time_gap)
+                start_time = end_time
+                file_size = 0
                 continue
             #print chunk_store.summary.total_chunk
             line = line.strip()
@@ -63,7 +84,15 @@ def test_put(chunk_store, finger_path):
             fp = data[0]
             size = int(data[1])
             data = get_str(size)
+            file_size += size
             chunk_store.put(fp, data)
+
+        print 'At last, we give the result'
+        show_stat(chunk_store)
+        end_time = time()
+        time_gap = time_diff(start_time, end_time)
+        if time_gap > 0.0:
+            print ('throughput %f MB/s', file_size*1.0/1024/1024/time_gap)
 
 
 def start_test():
