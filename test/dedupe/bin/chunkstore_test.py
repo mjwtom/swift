@@ -7,6 +7,9 @@ from swift.dedupe.time import time, time_diff
 
 
 # To simulate the store and read process
+write_delay = False
+read_delay = False
+
 network_throughput = 60.0
 compression_rate = 0.32
 
@@ -18,7 +21,7 @@ class TestStore(ChunkStore):
     def put(self, fp, chunk):
         ChunkStore.put(self, fp, chunk, None, None)
 
-    def _store_container(self, container, delay=True):
+    def _store_container(self, container, delay=write_delay):
         if not delay:
             return
         data = container.dumps()
@@ -75,7 +78,7 @@ def test_put(chunk_store, finger_path):
         file_size = 0
         start_time = time()
         for line in fp_in:
-            if line.startswith('/home/'):
+            if line.startswith('/'):
                 print 'file %s' % line
                 show_stat(chunk_store)
                 end_time = time()
