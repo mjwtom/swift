@@ -7,7 +7,8 @@ from swift.dedupe.time import time, time_diff
 
 
 # To simulate the store and read process
-store_container_time = 0.000001
+network_throughput = 60.0
+compression_rate = 0.32
 
 
 class TestStore(ChunkStore):
@@ -17,8 +18,13 @@ class TestStore(ChunkStore):
     def put(self, fp, chunk):
         ChunkStore.put(self, fp, chunk, None, None)
 
-    def _store_container(self, container):
-        sleep(store_container_time)
+    def _store_container(self, container, delay=True):
+        if not delay:
+            return
+        data = container.dumps()
+        l = len(data)
+        trans_time = 1.0*l/1024/1024/network_throughput
+        sleep(trans_time)
 
     def get(self, fp):
         pass
@@ -75,7 +81,7 @@ def test_put(chunk_store, finger_path):
                 end_time = time()
                 time_gap = time_diff(start_time, end_time)
                 if time_gap > 0.0:
-                    print ('throughput %f MB/s', file_size*1.0/1024/1024/time_gap)
+                    print ('throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
                 start_time = end_time
                 file_size = 0
                 continue
@@ -93,7 +99,7 @@ def test_put(chunk_store, finger_path):
         end_time = time()
         time_gap = time_diff(start_time, end_time)
         if time_gap > 0.0:
-            print ('throughput %f MB/s', file_size*1.0/1024/1024/time_gap)
+            print ('throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
 
 
 def start_test():

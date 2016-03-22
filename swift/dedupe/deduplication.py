@@ -64,7 +64,7 @@ class ChunkStore(object):
         self.compress = config_true_value(conf.get('compress', 'false'))
         if self.compress:
             self.method = conf.get('compress_method', 'lz4hc')
-        self.async_send = config_true_value(conf.get('async_send', 'true'))
+        self.async_send = config_true_value(conf.get('async_send', 'false'))
         if self.async_send:
             self.send_queue_len = int(conf.get('send_queue_len', 2))
             self.send_queue = Queue.Queue(self.send_queue_len)
@@ -84,7 +84,6 @@ class ChunkStore(object):
             self.logger = get_logger(log_conf, log_route='deduplication')
         else:
             self.logger = logger
-        self.container_penalty = config_true_value(conf.get('dedupe_container_penalty', 'false'))
 
     def _add2cache(self, cache, key, value):
         cache[key] = value
@@ -325,7 +324,9 @@ class ChunkStore(object):
             dedupe_end = time()
             self._fill_cache_with_container_fp(container_id)
             self.summary.fp_lookup_time += time_diff(dedupe_start, dedupe_end)
-            return
+        else:
+            container_id = self.store(fp, chunk)
+            self.index.put(fp, container_id)
 
     def put(self, fp, chunk, obj_controller, req):
         self.summary.total_size += len(chunk) # for summary
