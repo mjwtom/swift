@@ -4,33 +4,127 @@ from swift.common.utils import parse_options
 from swift.common.wsgi import appconfig, ConfigFileError
 from time import sleep
 from swift.dedupe.time import time, time_diff
+import six.moves.cPickle as pickle
+from directio import read, write
+from swift.dedupe.dedupe_container import DedupeContainer
 
+
+test_file_num = 1
 
 # To simulate the store and read process
-write_delay = False
-read_delay = False
+compress = True
+async_compress =True
+write_delay = True
+read_delay = True
+
 
 network_throughput = 60.0
-compression_rate = 0.32
+compress_rate = 0.32
+compress_speed = 13
+decompress_speed = 1200
 
 
 class TestStore(ChunkStore):
     def __init__(self, conf):
         ChunkStore.__init__(self, conf=conf, app=None)
+        self.size = 0
 
     def put(self, fp, chunk):
         ChunkStore.put(self, fp, chunk, None, None)
 
-    def _store_container(self, container, delay=write_delay):
-        if not delay:
+    def get(self, fp):
+        ChunkStore.get(self, fp, None, None)
+
+    def _store_container(self, container):
+        if not write_delay:
             return
         data = container.dumps()
         l = len(data)
+        if compress:
+            if not async_compress:
+                delay_time = 1.0*l/1024/1024/compress_speed
+                sleep(delay_time)
+            l *= compress_rate
         trans_time = 1.0*l/1024/1024/network_throughput
         sleep(trans_time)
 
-    def get(self, fp):
-        pass
+    def _store_container_fp(self, container):
+        if not os.path.exists(self.container_fp_dir):
+            os.makedirs(self.container_fp_dir)
+        path = self.container_fp_dir + '/' + container.get_id()
+        fps = container.get_fps_lens()
+        data = pickle.dumps(fps)
+        if self.direct_io:
+            f = os.open(path, os.O_CREAT | os.O_APPEND | os.O_RDWR | os.O_DIRECT)
+            len_data = len(data)
+            if (len_data % 512) != 0:
+                ll = 512 - len_data%512 # alligned by 512
+                data += '\0'*ll
+            try:
+                write(f, data)
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'wb') as f:
+                pickle.dump(fps, f)
+
+    def _load_container_fp(self, container_id):
+        if container_id == self.container.get_id():
+            fps = self.container.get_fps_lens()
+            return fps
+        path = self.container_fp_dir + '/' + container_id
+        if not os.path.exists(path):
+            return None
+        if self.direct_io:
+            ll = os.path.getsize(path)
+            f = os.open(path, os.O_RDONLY | os.O_DIRECT)
+            try:
+                data = read(f, ll)
+                fps = pickle.loads(data)
+            except Exception as e:
+                pass
+            finally:
+                os.close(f)
+        else:
+            with open(path, 'rb') as f:
+                fps = pickle.load(f)
+        return fps
+
+    def _fill_cache_with_container_fp(self, container_id):
+        fps_lens = self._load_container_fp(container_id)
+        print container_id
+        for fp, l in fps_lens:
+            self._add2cache(self.fp_cache, fp, container_id)
+
+    def retrieve_container(self, container_id):
+        path = self.container_fp_dir + '/' + container_id
+        if not os.path.exists(path):
+            return None
+        with open(path, 'rb') as f:
+            data = f.read()
+        kv = pickle.loads(data)
+        size = 0
+        self.kv = kv
+        for _, l in kv:
+            size += l
+        self.size = size
+        size *= compress_rate
+        if read_delay:
+            delay_time = 1.0*size/1024/1024/network_throughput
+            sleep(delay_time)
+
+    def get_container_from_compressed_data(self, data, dc_id):
+        size = self.size
+        if read_delay:
+            delay_time = 1.0*size/1024/1024/decompress_speed
+            sleep(delay_time)
+        dc_container = DedupeContainer(dc_id)
+        for fp, l in self.kv:
+            chunk = get_str(l)
+            dc_container.add(fp, chunk)
+        return dc_container
 
 
 def get_size(finger_path):
@@ -71,6 +165,7 @@ def show_stat(chunk_store):
 
 
 def test_put(chunk_store, finger_path):
+    file_num = 0
     if not os.path.exists(finger_path):
         print 'no fingerprint file'
         return
@@ -79,12 +174,15 @@ def test_put(chunk_store, finger_path):
         start_time = time()
         for line in fp_in:
             if line.startswith('/'):
+                if file_num >= test_file_num:
+                    break
+                file_num += 1
                 print 'file %s' % line
                 show_stat(chunk_store)
                 end_time = time()
                 time_gap = time_diff(start_time, end_time)
                 if time_gap > 0.0:
-                    print ('throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
+                    print ('put throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
                 start_time = end_time
                 file_size = 0
                 continue
@@ -95,6 +193,9 @@ def test_put(chunk_store, finger_path):
             size = int(data[1])
             data = get_str(size)
             file_size += size
+            if write_delay:
+                delay_time = 1.0*size/1024/1024/network_throughput
+                sleep(delay_time)
             chunk_store.put(fp, data)
 
         print 'At last, we give the result'
@@ -102,7 +203,45 @@ def test_put(chunk_store, finger_path):
         end_time = time()
         time_gap = time_diff(start_time, end_time)
         if time_gap > 0.0:
-            print ('throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
+            print ('put throughput %f MB/s\n' % (file_size*1.0/1024/1024/time_gap))
+
+
+def test_get(chunk_store, finger_path):
+    file_num = 0
+    if not os.path.exists(finger_path):
+        print 'no fingerprint file'
+        return
+    with open(finger_path, 'r') as fp_in:
+        file_size = 0
+        start_time = time()
+        for line in fp_in:
+            if line.startswith('/'):
+                if file_num >= test_file_num:
+                    break
+                file_num += 1
+                print 'file %s' % line
+                show_stat(chunk_store)
+                end_time = time()
+                time_gap = time_diff(start_time, end_time)
+                if time_gap > 0.0:
+                    print ('get throughput %f MB/s' % (file_size*1.0/1024/1024/time_gap))
+                start_time = end_time
+                file_size = 0
+                continue
+            #print chunk_store.summary.total_chunk
+            line = line.strip()
+            data = line.split()
+            fp = data[0]
+            size = int(data[1])
+            file_size += size
+            chunk = chunk_store.get(fp)
+
+        print 'At last, we give the result'
+        show_stat(chunk_store)
+        end_time = time()
+        time_gap = time_diff(start_time, end_time)
+        if time_gap > 0.0:
+            print ('get throughput %f MB/s\n' % (file_size*1.0/1024/1024/time_gap))
 
 
 def start_test():
@@ -113,6 +252,7 @@ def start_test():
                               (conf_file, e))
     chunk_store = TestStore(conf)
     test_put(chunk_store, finger_path)
+    test_get(chunk_store, finger_path)
 
 
 if __name__ == '__main__':

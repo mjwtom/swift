@@ -45,3 +45,7 @@ class DedupeContainer(object):
     def get_fps(self):
         fps = list(self.kv.keys())
         return fps
+
+    def get_fps_lens(self):
+        fps_lens = [(k, len(data)) for k, data in self.kv.items()]
+        return fps_lens

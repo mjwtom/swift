@@ -33,7 +33,7 @@ class ChunkStore(object):
         self.chunk_store_version = conf.get('chunk_store_version', 'v1')
         self.chunk_store_account = conf.get('chunk_store_account', 'chunk_store')
         self.chunk_sore_container = conf.get('chunk_sore_container', 'chunk_store')
-        self.fp_cache = LRU(int(conf.get('cache_size', 1024*1024)))
+        self.fp_cache = LRU(int(conf.get('cache_size', 1024*1024*32)))
         self.chunk_pool = LRU(int(conf.get('chunk_pool_size', 1024*256)))
         self.container_pool = LRU(int(conf.get('compress_pool_size', 256)))
         self.bf = ScalableBloomFilter(mode=ScalableBloomFilter.SMALL_SET_GROWTH)
@@ -347,6 +347,19 @@ class ChunkStore(object):
         for fp, chunk in container.kv.items():
             self.chunk_pool[fp] = chunk
 
+    def get_container_from_compressed_data(self, data, dc_id):
+        dedupe_start = time()
+        data = decompress(data, self.method)
+        dedupe_end = time()
+        self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
+
+        dc_container = DedupeContainer(dc_id)
+        dedupe_start = time()
+        dc_container.loads(data)
+        dedupe_end = time()
+        self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
+        return dc_container
+
     def retrieve_container(self, dc_id):
         req = self._dupl_req(self.req, dc_id, None, 0)
 
@@ -355,13 +368,18 @@ class ChunkStore(object):
         resp = self.object_controller.GETorHEAD(req)
         self.object_controller.object_name = obj_name
 
-        data = ''
-        for d in iter(resp.app_iter):
-            data += d
+        data = list(iter(resp.app_iter))
+        data = ''.join(data)
+        '''
         if resp.headers.get('X-Object-Sysmeta-Compressed'):
             self.container_pool[dc_id] = data
             self.method = resp.headers.get('X-Object-Sysmeta-CompressionMethod')
+            dedupe_start = time()
+            data = decompress(data, self.method)
+            dedupe_end = time()
+            self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
         del resp
+        '''
         return data
 
     def _eager_get(self, fp):
@@ -377,27 +395,18 @@ class ChunkStore(object):
         dedupe_end = time()
         self.summary.get_cid_time += time_diff(dedupe_start, dedupe_end)
 
-        cdc = self.container_pool.get(dc_id)
-        if not cdc:
+        data = self.container_pool.get(dc_id)
+        if not data:
             data = self.retrieve_container(dc_id)
         else:
             self.summary.hit_compressed += 1
-            dedupe_start = time()
-            data = decompress(cdc, self.method)
-            dedupe_end = time()
-            self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
-        if cdc:
-            dc_container = DedupeContainer(dc_id)
-            dedupe_start = time()
-            dc_container.loads(data)
-            dedupe_end = time()
-            self.summary.container_pickle_loads_time += time_diff(dedupe_start, dedupe_end)
-            self.add_to_chunk_pool(dc_container)
-            r = self.chunk_pool.get(fp)
-            if r:
-                return r
-            else:
-                return dc_container.get(fp)
+        dc_container = self.get_container_from_compressed_data(data, dc_id)
+        self.add_to_chunk_pool(dc_container)
+        r = self.chunk_pool.get(fp)
+        if r:
+            return r
+        else:
+            return dc_container.get(fp)
 
     def _lazy_get(self, fp):
         #check if the chunk in the buffer area
