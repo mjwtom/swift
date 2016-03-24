@@ -9,11 +9,13 @@ from directio import read, write
 from swift.dedupe.dedupe_container import DedupeContainer
 
 
-test_file_num = 1
+test_upload_file_num = 1000
+test_download_file_num = 30
 
 # To simulate the store and read process
 compress = True
-async_compress =True
+decompress = True
+async_compress = True
 write_delay = True
 read_delay = True
 
@@ -27,7 +29,7 @@ decompress_speed = 1200
 class TestStore(ChunkStore):
     def __init__(self, conf):
         ChunkStore.__init__(self, conf=conf, app=None)
-        self.size = 0
+        self.fake_container = dict()
 
     def put(self, fp, chunk):
         ChunkStore.put(self, fp, chunk, None, None)
@@ -36,17 +38,22 @@ class TestStore(ChunkStore):
         ChunkStore.get(self, fp, None, None)
 
     def _store_container(self, container):
-        if not write_delay:
-            return
+        store_start = time()
         data = container.dumps()
         l = len(data)
+        compress_start = time()
         if compress:
             if not async_compress:
                 delay_time = 1.0*l/1024/1024/compress_speed
                 sleep(delay_time)
+        compress_end = time()
+        self.summary.compression_time += time_diff(compress_start, compress_end)
+        if write_delay:
             l *= compress_rate
-        trans_time = 1.0*l/1024/1024/network_throughput
-        sleep(trans_time)
+            trans_time = 1.0*l/1024/1024/network_throughput
+            sleep(trans_time)
+        store_end = time()
+        self.summary.store_time += time_diff(store_start, store_end)
 
     def _store_container_fp(self, container):
         if not os.path.exists(self.container_fp_dir):
@@ -99,6 +106,7 @@ class TestStore(ChunkStore):
             self._add2cache(self.fp_cache, fp, container_id)
 
     def retrieve_container(self, container_id):
+        dedupe_start = time()
         path = self.container_fp_dir + '/' + container_id
         if not os.path.exists(path):
             return None
@@ -106,24 +114,29 @@ class TestStore(ChunkStore):
             data = f.read()
         kv = pickle.loads(data)
         size = 0
-        self.kv = kv
+        self.fake_container[container_id] = kv
         for _, l in kv:
             size += l
-        self.size = size
         size *= compress_rate
+        self.fake_container[container_id] = (size, kv)
         if read_delay:
             delay_time = 1.0*size/1024/1024/network_throughput
             sleep(delay_time)
+        dedupe_end = time()
+        self.summary.retrieve_time += time_diff(dedupe_start, dedupe_end)
 
     def get_container_from_compressed_data(self, data, dc_id):
-        size = self.size
-        if read_delay:
+        dedupe_start = time()
+        size, kv = self.fake_container[dc_id]
+        if decompress:
             delay_time = 1.0*size/1024/1024/decompress_speed
             sleep(delay_time)
         dc_container = DedupeContainer(dc_id)
-        for fp, l in self.kv:
+        for fp, l in kv:
             chunk = get_str(l)
             dc_container.add(fp, chunk)
+        dedupe_end = time()
+        self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
         return dc_container
 
 
@@ -134,7 +147,7 @@ def get_size(finger_path):
             name = line
             total_size = 0
             line = f.readline()
-            while line and (not line.startswith('/home/')):
+            while line and (not line.startswith('/')):
                 size = line.split()
                 size = int(size[1])
                 total_size += size
@@ -174,7 +187,7 @@ def test_put(chunk_store, finger_path):
         start_time = time()
         for line in fp_in:
             if line.startswith('/'):
-                if file_num >= test_file_num:
+                if file_num >= test_upload_file_num:
                     break
                 file_num += 1
                 print 'file %s' % line
@@ -216,7 +229,7 @@ def test_get(chunk_store, finger_path):
         start_time = time()
         for line in fp_in:
             if line.startswith('/'):
-                if file_num >= test_file_num:
+                if file_num >= test_download_file_num:
                     break
                 file_num += 1
                 print 'file %s' % line
@@ -235,6 +248,9 @@ def test_get(chunk_store, finger_path):
             size = int(data[1])
             file_size += size
             chunk = chunk_store.get(fp)
+            if read_delay:
+                delay_time = 1.0*size/1024/1024/network_throughput
+                sleep(delay_time)
 
         print 'At last, we give the result'
         show_stat(chunk_store)
@@ -251,7 +267,9 @@ def start_test():
         raise ConfigFileError("Error trying to load config from %s: %s" %
                               (conf_file, e))
     chunk_store = TestStore(conf)
+    print 'start to test write'
     test_put(chunk_store, finger_path)
+    print 'start to test read'
     test_get(chunk_store, finger_path)
 
 

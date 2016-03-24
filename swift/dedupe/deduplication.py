@@ -361,6 +361,7 @@ class ChunkStore(object):
         return dc_container
 
     def retrieve_container(self, dc_id):
+        dedupe_start = time()
         req = self._dupl_req(self.req, dc_id, None, 0)
 
         obj_name = self.object_controller.object_name
@@ -370,17 +371,11 @@ class ChunkStore(object):
 
         data = list(iter(resp.app_iter))
         data = ''.join(data)
-        '''
-        if resp.headers.get('X-Object-Sysmeta-Compressed'):
-            self.container_pool[dc_id] = data
-            self.method = resp.headers.get('X-Object-Sysmeta-CompressionMethod')
-            dedupe_start = time()
-            data = decompress(data, self.method)
-            dedupe_end = time()
-            self.summary.decompression_time += time_diff(dedupe_start, dedupe_end)
+        container = self.get_container_from_compressed_data(data, dc_id)
         del resp
-        '''
-        return data
+        dedupe_end = time()
+        self.summary.retrieve_time += time_diff(dedupe_start, dedupe_end)
+        return container
 
     def _eager_get(self, fp):
         r = self.container.get(fp)
@@ -396,11 +391,11 @@ class ChunkStore(object):
         self.summary.get_cid_time += time_diff(dedupe_start, dedupe_end)
 
         data = self.container_pool.get(dc_id)
-        if not data:
-            data = self.retrieve_container(dc_id)
-        else:
+        if data:
             self.summary.hit_compressed += 1
-        dc_container = self.get_container_from_compressed_data(data, dc_id)
+            dc_container = self.get_container_from_compressed_data(data, dc_id)
+        else:
+            dc_container = self.retrieve_container(dc_id)
         self.add_to_chunk_pool(dc_container)
         r = self.chunk_pool.get(fp)
         if r:
@@ -422,11 +417,13 @@ class ChunkStore(object):
         self.req = req
         self.summary.get += 1
         if self.sqlite_index:
-            return self._sqlite_get(fp)
+            data = self._sqlite_get(fp)
         elif self.lazy_dedupe:
-            return self._lazy_get(fp)
+            data = self._lazy_get(fp)
         else:
-            return self._eager_get(fp)
+            data = self._eager_get(fp)
+        self.summary.total_download += len(data)
+        return data
 
 
 class InformationDatabase(object):

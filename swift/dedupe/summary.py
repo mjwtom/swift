@@ -33,6 +33,7 @@ class DedupeSummary(object):
         self.write_disk_num = 0
         self.write_disk_time = 0
         self.lazy_calback_time = 0
+        self.retrieve_time = 0
 
     def get_info(self):
         self.total_download_chunk = self.get
@@ -64,5 +65,6 @@ class DedupeSummary(object):
                 'write disk time: %f' % self.write_disk_time,
                 'read disk num: %d' % self.read_disk_num,
                 'read disk time: %f' % self.read_disk_time,
-                'lazy callback time: %f' % self.lazy_calback_time]
+                'lazy callback time: %f' % self.lazy_calback_time,
+                'retrieve container time: %f' % self.retrieve_time]
         return info
