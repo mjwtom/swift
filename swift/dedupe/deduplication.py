@@ -371,6 +371,7 @@ class ChunkStore(object):
 
         data = list(iter(resp.app_iter))
         data = ''.join(data)
+        self.container_pool[dc_id] = data
         container = self.get_container_from_compressed_data(data, dc_id)
         del resp
         dedupe_end = time()

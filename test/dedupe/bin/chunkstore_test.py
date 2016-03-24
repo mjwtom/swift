@@ -9,15 +9,15 @@ from directio import read, write
 from swift.dedupe.dedupe_container import DedupeContainer
 
 
-test_upload_file_num = 1000
+test_upload_file_num = 30
 test_download_file_num = 30
 
 # To simulate the store and read process
-compress = True
-decompress = True
-async_compress = True
-write_delay = True
-read_delay = True
+compress = False
+decompress = False
+async_compress = False
+write_delay = False
+read_delay = False
 
 
 network_throughput = 60.0
@@ -35,7 +35,7 @@ class TestStore(ChunkStore):
         ChunkStore.put(self, fp, chunk, None, None)
 
     def get(self, fp):
-        ChunkStore.get(self, fp, None, None)
+        return ChunkStore.get(self, fp, None, None)
 
     def _store_container(self, container):
         store_start = time()
@@ -101,7 +101,7 @@ class TestStore(ChunkStore):
 
     def _fill_cache_with_container_fp(self, container_id):
         fps_lens = self._load_container_fp(container_id)
-        print container_id
+        print 'load container id %s' % container_id
         for fp, l in fps_lens:
             self._add2cache(self.fp_cache, fp, container_id)
 
@@ -114,20 +114,21 @@ class TestStore(ChunkStore):
             data = f.read()
         kv = pickle.loads(data)
         size = 0
-        self.fake_container[container_id] = kv
         for _, l in kv:
             size += l
         size *= compress_rate
-        self.fake_container[container_id] = (size, kv)
+        self.container_pool[container_id] = (size, kv)
         if read_delay:
             delay_time = 1.0*size/1024/1024/network_throughput
             sleep(delay_time)
         dedupe_end = time()
         self.summary.retrieve_time += time_diff(dedupe_start, dedupe_end)
+        container = self.get_container_from_compressed_data(data, container_id)
+        return container
 
     def get_container_from_compressed_data(self, data, dc_id):
         dedupe_start = time()
-        size, kv = self.fake_container[dc_id]
+        size, kv = self.container_pool[dc_id]
         if decompress:
             delay_time = 1.0*size/1024/1024/decompress_speed
             sleep(delay_time)
@@ -199,7 +200,7 @@ def test_put(chunk_store, finger_path):
                 start_time = end_time
                 file_size = 0
                 continue
-            #print chunk_store.summary.total_chunk
+            # print chunk_store.summary.total_chunk
             line = line.strip()
             data = line.split()
             fp = data[0]
