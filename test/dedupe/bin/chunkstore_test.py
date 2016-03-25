@@ -9,8 +9,8 @@ from directio import read, write
 from swift.dedupe.dedupe_container import DedupeContainer
 
 
-test_upload_file_num = 30
-test_download_file_num = 30
+test_upload_file_num = 10000
+test_download_file_num = 100
 
 # To simulate the store and read process
 compress = False
@@ -20,10 +20,10 @@ write_delay = False
 read_delay = False
 
 
-network_throughput = 60.0
-compress_rate = 0.32
-compress_speed = 13
-decompress_speed = 1200
+network_throughput = 94.0
+compress_rate = 0.2482
+compress_speed = 12.64
+decompress_speed = 1331.49
 
 
 class TestStore(ChunkStore):
@@ -261,21 +261,23 @@ def test_get(chunk_store, finger_path):
             print ('get throughput %f MB/s\n' % (file_size*1.0/1024/1024/time_gap))
 
 
-def start_test():
+def start_test(put=True, get=True):
+    conf_file, options = parse_options()
+    extra_args = options.get('extra_args')
+    finger_path = extra_args[0]
     try:
         conf = appconfig(conf_file, name='proxy-server')
     except Exception as e:
         raise ConfigFileError("Error trying to load config from %s: %s" %
                               (conf_file, e))
     chunk_store = TestStore(conf)
-    print 'start to test write'
-    test_put(chunk_store, finger_path)
-    print 'start to test read'
-    test_get(chunk_store, finger_path)
+    if put:
+        print 'start to test write'
+        test_put(chunk_store, finger_path)
+    if get:
+        print 'start to test read'
+        test_get(chunk_store, finger_path)
 
 
 if __name__ == '__main__':
-    conf_file, options = parse_options()
-    extra_args = options.get('extra_args')
-    finger_path = extra_args[0]
     start_test()
