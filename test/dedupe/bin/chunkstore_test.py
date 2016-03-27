@@ -18,6 +18,7 @@ decompress = False
 async_compress = False
 write_delay = False
 read_delay = False
+compress_pool = False
 
 
 network_throughput = 94.0
@@ -50,7 +51,7 @@ class TestStore(ChunkStore):
         self.summary.compression_time += time_diff(compress_start, compress_end)
         if write_delay:
             l *= compress_rate
-            trans_time = 1.0*l/1024/1024/network_throughput
+            trans_time = 3.0*l/1024/1024/network_throughput # here we use 3-copies, so the size is 3 times larger
             sleep(trans_time)
         store_end = time()
         self.summary.store_time += time_diff(store_start, store_end)
@@ -117,7 +118,8 @@ class TestStore(ChunkStore):
         for _, l in kv:
             size += l
         size *= compress_rate
-        self.container_pool[container_id] = (size, kv)
+        if compress_pool:
+            self.container_pool[container_id] = (size, kv)
         if read_delay:
             delay_time = 1.0*size/1024/1024/network_throughput
             sleep(delay_time)

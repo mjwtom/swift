@@ -11,6 +11,7 @@ def compress(data, method=None):
         data = lz4.compressHC(data)
     return data
 
+
 def decompress(data, method=None):
     if method == 'zlib':
         data = zlib.decompress(data)

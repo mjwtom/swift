@@ -165,6 +165,29 @@ def collect_size():
         download(usr, ip, port, pwd, local, remote)
 
 
+def pickle_compress(source_pickle, result_pickle):
+    fin = open(source_pickle, 'rb')
+    files = pickle.load(fin)
+    fin.close()
+    result = []
+    for f in files:
+        fin = open(f, 'rb')
+        data = fin.read()
+        original_size = len(data)
+        fin.close()
+        data = lz4.compressHC(data)
+        compressed_size = len(data)
+        info = dict(
+            original_size = original_size,
+            compressed_size = compressed_size
+        )
+        print 'file %s, original size %d, compressed size %d' % (f, original_size, compressed_size)
+        result.append(info)
+    fout = open(result_pickle, 'wb')
+    pickle.dump(result, fout)
+    fout.close()
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print 'please give the test file path'
@@ -187,3 +210,6 @@ if __name__ == '__main__':
             compress_files(directory, pickle_file)
         elif sys.argv[1] == 'size':
             getsize_files(directory, pickle_file)
+        elif sys.argv[1] == 'pickle_compress':
+            pickle_compress(directory, pickle_file)
+
