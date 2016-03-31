@@ -30,7 +30,7 @@ decompress_speed = 1331.49
 class TestStore(ChunkStore):
     def __init__(self, conf):
         ChunkStore.__init__(self, conf=conf, app=None)
-        self.fake_container = dict()
+        self.fake_container = None
 
     def put(self, fp, chunk):
         ChunkStore.put(self, fp, chunk, None, None)
@@ -120,6 +120,8 @@ class TestStore(ChunkStore):
         size *= compress_rate
         if compress_pool:
             self.container_pool[container_id] = (size, kv)
+        else:
+            self.fake_container = (size, kv)
         if read_delay:
             delay_time = 1.0*size/1024/1024/network_throughput
             sleep(delay_time)
@@ -130,7 +132,10 @@ class TestStore(ChunkStore):
 
     def get_container_from_compressed_data(self, data, dc_id):
         dedupe_start = time()
-        size, kv = self.container_pool[dc_id]
+        if compress_pool:
+            size, kv = self.container_pool[dc_id]
+        else:
+            size, kv = self.fake_container
         if decompress:
             delay_time = 1.0*size/1024/1024/decompress_speed
             sleep(delay_time)
